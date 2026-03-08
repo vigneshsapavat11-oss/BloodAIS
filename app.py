@@ -1,5 +1,5 @@
 # ============================================
-# 🩸 BLOODAI COMPLETE SYSTEM v16.0
+# 🩸 BLOODAI COMPLETE SYSTEM v16.1
 # ALL DONORS NOTIFIED • CLOSEST FIRST • AUTO-ROTATION
 # ============================================
 
@@ -1158,9 +1158,9 @@ def get_all_donors_sorted_by_distance(blood_type, location):
     This ensures EVERY donor gets notified, but in the correct order (closest first)
     """
     try:
-        # Get ALL donors with matching blood type - REMOVED status filter temporarily
+        # Get ALL donors with matching blood type - REMOVED status filter
         donors = execute_query(
-            "SELECT * FROM donors WHERE blood=?",  # Removed status filter
+            "SELECT * FROM donors WHERE blood=?",
             (blood_type,),
             fetch_all=True
         ) or []
@@ -1610,7 +1610,7 @@ def send_welcome_email(donor_email, donor_name, donor_details):
             <div style="background: #e8f4fd; padding: 20px; border-radius: 15px;">
                 <h3 style="color: #0056b3;">📍 Location-Based Matching</h3>
                 <p>The closest donors are always contacted first! You'll be notified when someone near you needs blood.</p>
-                <p><strong>Note:</strong> If your location is not verified, you'll still receive requests but may not be prioritized correctly.</p>
+                <p><strong>Note:</strong> If your location is not verified, you'll still receive requests but may not be prioritized correctly. You can update your location in the Donor Dashboard.</p>
             </div>
             
             <p style="margin-top: 30px;">Together, we can save lives!</p>
@@ -2721,7 +2721,7 @@ st.sidebar.markdown("📧 **All donors notified in order**")
 if not st.session_state.get('showing_response', False):
     
     # ============================================
-    # HOME PAGE
+    # HOME PAGE - FIXED LIVES SAVED METRIC
     # ============================================
     
     if menu == "🏠 Home":
@@ -2762,10 +2762,24 @@ if not st.session_state.get('showing_response', False):
             st.markdown(f"<div class='metric-card'><div class='metric-value'>{total_requests}</div><div>Total Requests</div></div>", unsafe_allow_html=True)
         
         with col4:
+            # FIXED: Lives Saved calculation - properly handle None values
             total_units = execute_query("SELECT SUM(units) as total FROM donation_history", fetch_one=True)
-            total_units_value = total_units.get('total', 0) if total_units else 0
-            lives_saved = (total_units_value or 0) * 3
+            
+            # Debug print to see what's coming from database
+            print(f"Total units from database: {total_units}")
+            
+            if total_units and total_units.get('total'):
+                total_units_value = total_units['total']
+                lives_saved = total_units_value * 3
+            else:
+                total_units_value = 0
+                lives_saved = 0
+                
             st.markdown(f"<div class='metric-card'><div class='metric-value'>{lives_saved}</div><div>Lives Saved</div></div>", unsafe_allow_html=True)
+            
+            # Debug info (can be removed later)
+            if total_units_value > 0:
+                st.caption(f"Based on {total_units_value} units donated")
         
         st.markdown("---")
         st.subheader("📦 Current Blood Inventory")
@@ -2857,7 +2871,7 @@ if not st.session_state.get('showing_response', False):
                             if coords:
                                 location_note = "✅ Location verified - You'll be prioritized in donor queue"
                             else:
-                                location_note = "⚠️ Could not verify location. You'll still receive requests but may not be prioritized correctly. You can update your location later."
+                                location_note = "⚠️ Could not verify location. You'll still receive requests but may not be prioritized correctly. You can update your location in the Donor Dashboard."
                             
                             execute_query(
                                 """INSERT INTO donors 
@@ -3539,7 +3553,7 @@ if not st.session_state.get('showing_response', False):
     st.sidebar.markdown("---")
     st.sidebar.markdown(f"""
     <div style='text-align: center; color: #666; font-size: 0.8rem;'>
-        <p>BloodAI v16.0 - Complete System</p>
+        <p>BloodAI v16.1 - Complete System</p>
         <p>📍 <strong style='color: #43e97b;'>All Donors Notified • Closest First • {WAIT_MINUTES} Min Rotation</strong></p>
     </div>
     """, unsafe_allow_html=True)
