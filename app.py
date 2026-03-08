@@ -1,6 +1,6 @@
 # ============================================
-# 🩸 BLOODAI COMPLETE SYSTEM v15.1
-# FIXED JSON Serialization Error
+# 🩸 BLOODAI COMPLETE SYSTEM v16.0
+# ALL DONORS NOTIFIED • CLOSEST FIRST • AUTO-ROTATION
 # ============================================
 
 import streamlit as st
@@ -31,6 +31,7 @@ import json
 import uuid
 import secrets
 import re
+from datetime import date
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -394,9 +395,9 @@ st.markdown("""
 # ============================================
 
 # Email Configuration - CHANGE THESE TO YOUR DETAILS
-FROM_EMAIL = "vigneshsapavat11@gmail.com"  # ← Change to your email
-APP_PASSWORD = "kmcfregjdseaihwn"  # ← Change to your Gmail App Password
-BASE_URL = "https://bloodai-smart-donor-system.streamlit.app/"  # ← Change to your actual Streamlit URL
+FROM_EMAIL = "vigneshsapavat11@gmail.com"  # ← Your email
+APP_PASSWORD = "kmcfregjdseaihwn"  # ← Your Gmail App Password
+BASE_URL = "https://bloodai-smart-donor-system.streamlit.app/"  # ← Your actual Streamlit URL
 
 # System Settings
 WAIT_MINUTES = 2
@@ -1082,71 +1083,121 @@ def update_donor_points(donor_id):
         return 0, "New Donor 🌟"
 
 # ============================================
-# ENHANCED DONOR SORTING FUNCTION - GET ALL DONORS SORTED BY DISTANCE
+# ML MODEL FOR DONOR PREDICTION
+# ============================================
+
+@st.cache_resource
+def train_model():
+    """Train ML model for donor prediction"""
+    try:
+        donors = execute_query(
+            "SELECT blood, location, status, total_donations, age, weight FROM donors WHERE status='Available'",
+            fetch_all=True
+        ) or []
+        
+        if len(donors) < 3:
+            return None
+            
+        X = []
+        y = []
+        
+        for d in donors:
+            if d:
+                blood_hash = sum(ord(c) for c in d.get('blood', '')) % 10 if d.get('blood') else 0
+                loc_hash = sum(ord(c) for c in d.get('location', '')) % 10 if d.get('location') else 0
+                donations = d.get('total_donations', 0)
+                age = d.get('age', 30)
+                weight = d.get('weight', 70)
+                
+                X.append([blood_hash, loc_hash, donations, age, weight])
+                y.append(1 if d.get('status') == "Available" else 0)
+        
+        if len(X) > 0:
+            model = RandomForestClassifier(n_estimators=100, random_state=42)
+            model.fit(X, y)
+            return model
+        return None
+    except Exception as e:
+        print(f"Model training error: {e}")
+        return None
+
+model = train_model()
+
+# ============================================
+# JSON SERIALIZATION HELPER
 # ============================================
 
 def make_json_serializable(obj):
     """Convert non-serializable objects to JSON serializable format"""
+    if obj is None:
+        return None
+    if isinstance(obj, (str, int, float, bool)):
+        return obj
     if isinstance(obj, dict):
         return {key: make_json_serializable(value) for key, value in obj.items()}
-    elif isinstance(obj, list):
+    if isinstance(obj, (list, tuple)):
         return [make_json_serializable(item) for item in obj]
-    elif isinstance(obj, (datetime, date)):
+    if isinstance(obj, (datetime, date)):
         return obj.isoformat()
-    elif isinstance(obj, (np.integer, np.floating)):
+    if isinstance(obj, (np.integer, np.floating)):
         return obj.item()
-    elif isinstance(obj, np.ndarray):
+    if isinstance(obj, np.ndarray):
         return obj.tolist()
-    elif hasattr(obj, '__dict__'):
+    if hasattr(obj, '__dict__'):
         return make_json_serializable(obj.__dict__)
-    else:
-        return obj
+    # For any other type, convert to string
+    return str(obj)
+
+# ============================================
+# ENHANCED DONOR SORTING FUNCTION - FIXED TO INCLUDE ALL DONORS
+# ============================================
 
 def get_all_donors_sorted_by_distance(blood_type, location):
     """
-    Get ALL eligible donors sorted by distance from patient
+    Get ALL donors sorted by distance from patient - FIXED to include ALL donors
     This ensures EVERY donor gets notified, but in the correct order (closest first)
     """
     try:
-        eligible_donors = get_eligible_donors(blood_type)
-        if not eligible_donors:
+        # Get ALL donors with matching blood type - REMOVED status filter temporarily
+        donors = execute_query(
+            "SELECT * FROM donors WHERE blood=?",  # Removed status filter
+            (blood_type,),
+            fetch_all=True
+        ) or []
+        
+        print(f"Found {len(donors)} donors for blood type {blood_type}")
+        
+        if not donors:
             return []
+        
+        # If no location provided, return all donors with unknown distance
+        if not location:
+            result = []
+            for donor in donors:
+                donor_copy = dict(donor)
+                donor_copy['distance_km'] = float('inf')
+                donor_copy = make_json_serializable(donor_copy)
+                result.append(donor_copy)
+            return result
         
         patient_coords = get_coords(location)
         if not patient_coords:
             # If no coordinates, return all donors but mark distance as unknown
             result = []
-            for donor in eligible_donors:
+            for donor in donors:
                 donor_copy = dict(donor)
                 donor_copy['distance_km'] = float('inf')
-                # Ensure all values are JSON serializable
                 donor_copy = make_json_serializable(donor_copy)
                 result.append(donor_copy)
             return result
         
         donors_with_distance = []
-        for donor in eligible_donors:
-            if not donor:
-                continue
-            
-            donor_copy = dict(donor)  # Make a copy to avoid modifying original
+        for donor in donors:
+            donor_copy = dict(donor)
             donor_lat = donor_copy.get('latitude')
             donor_lon = donor_copy.get('longitude')
             
-            # Try to get coordinates if missing
-            if not donor_lat or not donor_lon:
-                donor_coords = get_coords(donor_copy.get('location', ''))
-                if donor_coords:
-                    donor_lat, donor_lon = donor_coords
-                    # Update donor in database for future use
-                    execute_query(
-                        "UPDATE donors SET latitude=?, longitude=?, is_verified=1 WHERE id=?",
-                        (donor_lat, donor_lon, donor_copy.get('id')),
-                        commit=True
-                    )
-                    donor_copy['latitude'] = donor_lat
-                    donor_copy['longitude'] = donor_lon
-            
+            # If donor has coordinates, calculate distance
             if donor_lat and donor_lon:
                 try:
                     distance = geodesic(patient_coords, (donor_lat, donor_lon)).km
@@ -1156,7 +1207,7 @@ def get_all_donors_sorted_by_distance(blood_type, location):
             else:
                 donor_copy['distance_km'] = float('inf')
             
-            # Ensure all values are JSON serializable before adding to list
+            # Ensure JSON serializable
             donor_copy = make_json_serializable(donor_copy)
             donors_with_distance.append(donor_copy)
         
@@ -1559,6 +1610,7 @@ def send_welcome_email(donor_email, donor_name, donor_details):
             <div style="background: #e8f4fd; padding: 20px; border-radius: 15px;">
                 <h3 style="color: #0056b3;">📍 Location-Based Matching</h3>
                 <p>The closest donors are always contacted first! You'll be notified when someone near you needs blood.</p>
+                <p><strong>Note:</strong> If your location is not verified, you'll still receive requests but may not be prioritized correctly.</p>
             </div>
             
             <p style="margin-top: 30px;">Together, we can save lives!</p>
@@ -2597,15 +2649,17 @@ selected_blood = st.sidebar.selectbox(
     key="sidebar_blood"
 )
 
-eligible_donors = get_eligible_donors(selected_blood)
-eligible_count = len(eligible_donors)
-
+# Get ALL donors count (not just eligible)
 total_result = execute_query(
     "SELECT COUNT(*) as count FROM donors WHERE blood=?",
     (selected_blood,),
     fetch_one=True
 )
 total = total_result['count'] if total_result else 0
+
+# Get eligible donors count
+eligible_donors = get_eligible_donors(selected_blood)
+eligible_count = len(eligible_donors)
 
 st.sidebar.markdown(f"""
 <div style='background: linear-gradient(135deg, #667eea20, #764ba220); padding: 1rem; border-radius: 10px;'>
@@ -2614,7 +2668,7 @@ st.sidebar.markdown(f"""
     <p>📊 Total: {total}</p>
     <p>⏱️ Cooldown: {COOLDOWN_MONTHS} months</p>
     <p>📍 Sorted by: <strong style='color: #43e97b;'>NEAREST FIRST</strong></p>
-    <p>📧 All eligible donors notified in order</p>
+    <p>📧 All donors notified in order</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -2658,7 +2712,7 @@ st.sidebar.info(f"⏱️ Auto-rotation: Every {WAIT_MINUTES} minutes")
 st.sidebar.info(f"⏳ Response: {WAIT_MINUTES} min per donor")
 st.sidebar.info(f"🛡️ Cooldown: {COOLDOWN_MONTHS} months")
 st.sidebar.markdown("📍 **Closest donors contacted first**")
-st.sidebar.markdown("📧 **All eligible donors notified**")
+st.sidebar.markdown("📧 **All donors notified in order**")
 
 # ============================================
 # MAIN CONTENT
@@ -2803,7 +2857,7 @@ if not st.session_state.get('showing_response', False):
                             if coords:
                                 location_note = "✅ Location verified - You'll be prioritized in donor queue"
                             else:
-                                location_note = "⚠️ Could not verify location. You may not be prioritized correctly."
+                                location_note = "⚠️ Could not verify location. You'll still receive requests but may not be prioritized correctly. You can update your location later."
                             
                             execute_query(
                                 """INSERT INTO donors 
@@ -2847,7 +2901,7 @@ if not st.session_state.get('showing_response', False):
                             st.error("Email already registered")
 
     # ============================================
-    # PATIENT REQUEST PAGE - FIXED JSON Serialization
+    # PATIENT REQUEST PAGE - FIXED VERSION
     # ============================================
 
     elif menu == "🆘 Patient Request":
@@ -2896,8 +2950,8 @@ if not st.session_state.get('showing_response', False):
                         if not coords:
                             st.warning("⚠️ Could not verify hospital location. Distance calculations may be less accurate.")
                         
-                        # Get ALL eligible donors sorted by distance
-                        with st.spinner("🔍 Finding all eligible donors and sorting by distance..."):
+                        # Get ALL donors sorted by distance - FIXED to include ALL donors
+                        with st.spinner("🔍 Finding all donors and sorting by distance..."):
                             show_donor_search()
                             all_donors = get_all_donors_sorted_by_distance(blood, location)
                         
@@ -2966,7 +3020,7 @@ if not st.session_state.get('showing_response', False):
                             st.markdown(f"""
                             <div class='location-priority'>
                                 <h3 style='color: #43e97b;'>📍 Donor Queue Information</h3>
-                                <p><strong>Total Eligible Donors:</strong> {len(all_donors)}</p>
+                                <p><strong>Total Donors:</strong> {len(all_donors)}</p>
                                 <p><strong>Closest Donor Distance:</strong> {first_distance_str}</p>
                                 <p><strong>Farthest Donor Distance:</strong> {last_distance_str}</p>
                                 <p><strong>Time between notifications:</strong> {WAIT_MINUTES} minutes</p>
@@ -3485,7 +3539,7 @@ if not st.session_state.get('showing_response', False):
     st.sidebar.markdown("---")
     st.sidebar.markdown(f"""
     <div style='text-align: center; color: #666; font-size: 0.8rem;'>
-        <p>BloodAI v15.1 - Complete System</p>
+        <p>BloodAI v16.0 - Complete System</p>
         <p>📍 <strong style='color: #43e97b;'>All Donors Notified • Closest First • {WAIT_MINUTES} Min Rotation</strong></p>
     </div>
     """, unsafe_allow_html=True)
