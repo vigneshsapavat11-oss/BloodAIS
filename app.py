@@ -1,6 +1,6 @@
 # ============================================
-# 🩸 BLOODAI COMPLETE SYSTEM v14.0
-# ALL FEATURES • ALL DONORS NOTIFIED • CLOSEST FIRST • 2-MINUTE ROTATION
+# 🩸 BLOODAI COMPLETE SYSTEM v15.1
+# FIXED JSON Serialization Error
 # ============================================
 
 import streamlit as st
@@ -503,7 +503,7 @@ def execute_query(query, params=(), fetch_one=False, fetch_all=False, commit=Fal
         return None if fetch_one or fetch_all else -1
 
 # ============================================
-# COMPLETE DATABASE SETUP WITH ALL TABLES
+# COMPLETE DATABASE SETUP
 # ============================================
 
 def init_database():
@@ -1082,49 +1082,25 @@ def update_donor_points(donor_id):
         return 0, "New Donor 🌟"
 
 # ============================================
-# ML MODEL FOR DONOR PREDICTION
-# ============================================
-
-@st.cache_resource
-def train_model():
-    """Train ML model for donor prediction"""
-    try:
-        donors = execute_query(
-            "SELECT blood, location, status, total_donations, age, weight FROM donors WHERE status='Available'",
-            fetch_all=True
-        ) or []
-        
-        if len(donors) < 3:
-            return None
-            
-        X = []
-        y = []
-        
-        for d in donors:
-            if d:
-                blood_hash = sum(ord(c) for c in d.get('blood', '')) % 10 if d.get('blood') else 0
-                loc_hash = sum(ord(c) for c in d.get('location', '')) % 10 if d.get('location') else 0
-                donations = d.get('total_donations', 0)
-                age = d.get('age', 30)
-                weight = d.get('weight', 70)
-                
-                X.append([blood_hash, loc_hash, donations, age, weight])
-                y.append(1 if d.get('status') == "Available" else 0)
-        
-        if len(X) > 0:
-            model = RandomForestClassifier(n_estimators=100, random_state=42)
-            model.fit(X, y)
-            return model
-        return None
-    except Exception as e:
-        print(f"Model training error: {e}")
-        return None
-
-model = train_model()
-
-# ============================================
 # ENHANCED DONOR SORTING FUNCTION - GET ALL DONORS SORTED BY DISTANCE
 # ============================================
+
+def make_json_serializable(obj):
+    """Convert non-serializable objects to JSON serializable format"""
+    if isinstance(obj, dict):
+        return {key: make_json_serializable(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [make_json_serializable(item) for item in obj]
+    elif isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    elif isinstance(obj, (np.integer, np.floating)):
+        return obj.item()
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif hasattr(obj, '__dict__'):
+        return make_json_serializable(obj.__dict__)
+    else:
+        return obj
 
 def get_all_donors_sorted_by_distance(blood_type, location):
     """
@@ -1139,47 +1115,53 @@ def get_all_donors_sorted_by_distance(blood_type, location):
         patient_coords = get_coords(location)
         if not patient_coords:
             # If no coordinates, return all donors but mark distance as unknown
+            result = []
             for donor in eligible_donors:
-                donor['distance_km'] = float('inf')
-            return eligible_donors
+                donor_copy = dict(donor)
+                donor_copy['distance_km'] = float('inf')
+                # Ensure all values are JSON serializable
+                donor_copy = make_json_serializable(donor_copy)
+                result.append(donor_copy)
+            return result
         
         donors_with_distance = []
         for donor in eligible_donors:
             if not donor:
                 continue
-                
-            donor_lat = donor.get('latitude')
-            donor_lon = donor.get('longitude')
+            
+            donor_copy = dict(donor)  # Make a copy to avoid modifying original
+            donor_lat = donor_copy.get('latitude')
+            donor_lon = donor_copy.get('longitude')
             
             # Try to get coordinates if missing
             if not donor_lat or not donor_lon:
-                donor_coords = get_coords(donor.get('location', ''))
+                donor_coords = get_coords(donor_copy.get('location', ''))
                 if donor_coords:
                     donor_lat, donor_lon = donor_coords
                     # Update donor in database for future use
                     execute_query(
                         "UPDATE donors SET latitude=?, longitude=?, is_verified=1 WHERE id=?",
-                        (donor_lat, donor_lon, donor.get('id')),
+                        (donor_lat, donor_lon, donor_copy.get('id')),
                         commit=True
                     )
+                    donor_copy['latitude'] = donor_lat
+                    donor_copy['longitude'] = donor_lon
             
             if donor_lat and donor_lon:
                 try:
                     distance = geodesic(patient_coords, (donor_lat, donor_lon)).km
-                    donor_copy = donor.copy()
                     donor_copy['distance_km'] = round(distance, 2)
-                    donors_with_distance.append(donor_copy)
                 except:
-                    donor_copy = donor.copy()
                     donor_copy['distance_km'] = float('inf')
-                    donors_with_distance.append(donor_copy)
             else:
-                donor_copy = donor.copy()
                 donor_copy['distance_km'] = float('inf')
-                donors_with_distance.append(donor_copy)
+            
+            # Ensure all values are JSON serializable before adding to list
+            donor_copy = make_json_serializable(donor_copy)
+            donors_with_distance.append(donor_copy)
         
         # Sort by distance (closest first)
-        donors_with_distance.sort(key=lambda x: x['distance_km'])
+        donors_with_distance.sort(key=lambda x: x.get('distance_km', float('inf')))
         return donors_with_distance
         
     except Exception as e:
@@ -1245,7 +1227,7 @@ def send_donor_request_email(donor, request, donor_rank, total_donors, donor_dis
             priority_color = "#ff6b6b"
         
         distance_display = f"{donor_distance:.1f}" if donor_distance and donor_distance != float('inf') else "Unknown"
-        distance_text = f"({donor_distance:.1f} km away)" if donor_distance and donor_distance != float('inf') else "(location unknown)"
+        distance_text = f"({donor_distance:.1f} km away)" if donor_distance and donor_distance != float('inf') else ""
         
         message = f"""
 <!DOCTYPE html>
@@ -2057,7 +2039,7 @@ def show_donor_search():
     status_text.empty()
 
 # ============================================
-# BLOOD INVENTORY MANAGEMENT - FIXED VERSION
+# BLOOD INVENTORY MANAGEMENT
 # ============================================
 
 class BloodInventoryManager:
@@ -2070,7 +2052,7 @@ class BloodInventoryManager:
         return execute_query(query, fetch_all=True) or []
     
     def check_stock_alerts(self):
-        """Check for low stock alerts - FIXED to return 2 values"""
+        """Check for low stock alerts"""
         inventory = self.get_inventory_summary()
         alerts = []
         blood_type_status = {}
@@ -2865,7 +2847,7 @@ if not st.session_state.get('showing_response', False):
                             st.error("Email already registered")
 
     # ============================================
-    # PATIENT REQUEST PAGE
+    # PATIENT REQUEST PAGE - FIXED JSON Serialization
     # ============================================
 
     elif menu == "🆘 Patient Request":
@@ -2948,8 +2930,11 @@ if not st.session_state.get('showing_response', False):
                             current_time = datetime.now()
                             current_time_str = current_time.strftime("%Y-%m-%d %H:%M:%S")
                             
+                            # Make sure all donors are JSON serializable
+                            serializable_donors = make_json_serializable(all_donors)
+                            
                             # Store all donors as JSON
-                            donors_json = json.dumps(all_donors)
+                            donors_json = json.dumps(serializable_donors)
                             
                             execute_query(
                                 """INSERT INTO requests 
@@ -3500,7 +3485,7 @@ if not st.session_state.get('showing_response', False):
     st.sidebar.markdown("---")
     st.sidebar.markdown(f"""
     <div style='text-align: center; color: #666; font-size: 0.8rem;'>
-        <p>BloodAI v14.0 - Complete System</p>
+        <p>BloodAI v15.1 - Complete System</p>
         <p>📍 <strong style='color: #43e97b;'>All Donors Notified • Closest First • {WAIT_MINUTES} Min Rotation</strong></p>
     </div>
     """, unsafe_allow_html=True)
