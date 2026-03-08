@@ -1,6 +1,6 @@
 # ============================================
-# 🩸 BLOODAI COMPLETE SYSTEM v12.1
-# All Donors Notified • Closest First • 2-Minute Rotation • Cooldown • Email Validation
+# 🩸 BLOODAI COMPLETE SYSTEM v14.0
+# ALL FEATURES • ALL DONORS NOTIFIED • CLOSEST FIRST • 2-MINUTE ROTATION
 # ============================================
 
 import streamlit as st
@@ -394,9 +394,9 @@ st.markdown("""
 # ============================================
 
 # Email Configuration - CHANGE THESE TO YOUR DETAILS
-FROM_EMAIL = "vigneshsapavat11@gmail.com"  # ← LINE 493 - Change to your email
-APP_PASSWORD = "kmcfregjdseaihwn"  # ← LINE 494 - Change to your Gmail App Password
-BASE_URL = "https://bloodai-smart-donor-system.streamlit.app/"  # ← LINE 495 - Change to your actual Streamlit URL
+FROM_EMAIL = "vigneshsapavat11@gmail.com"  # ← Change to your email
+APP_PASSWORD = "kmcfregjdseaihwn"  # ← Change to your Gmail App Password
+BASE_URL = "https://bloodai-smart-donor-system.streamlit.app/"  # ← Change to your actual Streamlit URL
 
 # System Settings
 WAIT_MINUTES = 2
@@ -503,11 +503,11 @@ def execute_query(query, params=(), fetch_one=False, fetch_all=False, commit=Fal
         return None if fetch_one or fetch_all else -1
 
 # ============================================
-# COMPLETE DATABASE SETUP WITH QUEUE SUPPORT
+# COMPLETE DATABASE SETUP WITH ALL TABLES
 # ============================================
 
 def init_database():
-    """Initialize complete database with all tables including queue support"""
+    """Initialize complete database with all tables"""
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -1598,101 +1598,105 @@ def send_welcome_email(donor_email, donor_name, donor_details):
 
 def check_and_contact_next_donor():
     """Check pending requests and contact next donor in queue after timeout"""
-    try:
-        pending = execute_query(
-            "SELECT * FROM requests WHERE status='Pending'",
-            fetch_all=True
-        ) or []
-        
-        for request in pending:
-            if not request:
-                continue
-                
-            request_id = request.get('id')
-            blood_type = request.get('blood')
-            location = request.get('location')
-            contacted = request.get('contacted') or ""
-            last_contacted = request.get('last_contacted_time')
-            all_donors_json = request.get('all_donors', '')
+    while True:
+        try:
+            pending = execute_query(
+                "SELECT * FROM requests WHERE status='Pending'",
+                fetch_all=True
+            ) or []
             
-            if not request_id or not blood_type or not location:
-                continue
-            
-            # First contact - send to first donor immediately
-            if not last_contacted and all_donors_json:
-                try:
-                    all_donors = json.loads(all_donors_json)
-                    if all_donors:
-                        first_donor = all_donors[0]
-                        
-                        new_contacted = str(first_donor.get('id')) + ","
-                        current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        
-                        execute_query(
-                            """UPDATE requests 
-                               SET donor_id=?, contacted=?, last_contacted_time=?, current_donor_index=1
-                               WHERE id=?""",
-                            (first_donor.get('id'), new_contacted, current_time_str, request_id),
-                            commit=True
-                        )
-                        
-                        # Send email to first donor
-                        distance = first_donor.get('distance_km', float('inf'))
-                        send_donor_request_email(first_donor, request, 1, len(all_donors), distance)
-                        print(f"✅ Contacted first donor: {first_donor.get('name')} at {distance} km")
-                except Exception as e:
-                    print(f"Error contacting first donor: {e}")
-            
-            # Check if WAIT_MINUTES have passed for subsequent contacts
-            elif last_contacted:
-                try:
-                    last_time = datetime.strptime(last_contacted, "%Y-%m-%d %H:%M:%S")
-                    current_time = datetime.now()
+            for request in pending:
+                if not request:
+                    continue
                     
-                    if current_time - last_time >= timedelta(minutes=WAIT_MINUTES):
-                        print(f"⏰ {WAIT_MINUTES} minutes passed for request {request_id}")
-                        
-                        # Get next donor to contact
-                        next_donor, next_index = get_next_donor_to_contact(request)
-                        
-                        if next_donor and all_donors_json:
-                            all_donors = json.loads(all_donors_json)
-                            new_contacted = contacted + str(next_donor.get('id')) + ","
-                            current_time_str = current_time.strftime("%Y-%m-%d %H:%M:%S")
+                request_id = request.get('id')
+                blood_type = request.get('blood')
+                location = request.get('location')
+                contacted = request.get('contacted') or ""
+                last_contacted = request.get('last_contacted_time')
+                all_donors_json = request.get('all_donors', '')
+                
+                if not request_id or not blood_type or not location:
+                    continue
+                
+                # First contact - send to first donor immediately
+                if not last_contacted and all_donors_json:
+                    try:
+                        all_donors = json.loads(all_donors_json)
+                        if all_donors:
+                            first_donor = all_donors[0]
+                            
+                            new_contacted = str(first_donor.get('id')) + ","
+                            current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                             
                             execute_query(
                                 """UPDATE requests 
-                                   SET donor_id=?, contacted=?, last_contacted_time=?, current_donor_index=?
+                                   SET donor_id=?, contacted=?, last_contacted_time=?, current_donor_index=1
                                    WHERE id=?""",
-                                (next_donor.get('id'), new_contacted, current_time_str, next_index + 1, request_id),
+                                (first_donor.get('id'), new_contacted, current_time_str, request_id),
                                 commit=True
                             )
                             
-                            # Send email to next donor
-                            rank = next_index + 1
-                            distance = next_donor.get('distance_km', float('inf'))
-                            send_donor_request_email(next_donor, request, rank, len(all_donors), distance)
-                            print(f"✅ Contacted next donor (#{rank}): {next_donor.get('name')}")
-                        else:
-                            print(f"❌ No more donors available")
-                            execute_query(
-                                "UPDATE requests SET status='No Donors Available' WHERE id=?",
-                                (request_id,),
-                                commit=True
-                            )
+                            # Send email to first donor
+                            distance = first_donor.get('distance_km', float('inf'))
+                            send_donor_request_email(first_donor, request, 1, len(all_donors), distance)
+                            print(f"✅ Contacted first donor: {first_donor.get('name')} at {distance} km")
+                    except Exception as e:
+                        print(f"Error contacting first donor: {e}")
+                
+                # Check if WAIT_MINUTES have passed for subsequent contacts
+                elif last_contacted:
+                    try:
+                        last_time = datetime.strptime(last_contacted, "%Y-%m-%d %H:%M:%S")
+                        current_time = datetime.now()
+                        
+                        if current_time - last_time >= timedelta(minutes=WAIT_MINUTES):
+                            print(f"⏰ {WAIT_MINUTES} minutes passed for request {request_id}")
                             
-                            # Notify patient
-                            add_notification(
-                                request.get('patient_email'),
-                                'no_donors',
-                                'No Donors Available',
-                                "All eligible donors have been contacted. No one accepted.",
-                                priority='High'
-                            )
-                except Exception as e:
-                    print(f"Error processing request {request_id}: {e}")
-    except Exception as e:
-        print(f"Scheduler error: {e}")
+                            # Get next donor to contact
+                            next_donor, next_index = get_next_donor_to_contact(request)
+                            
+                            if next_donor and all_donors_json:
+                                all_donors = json.loads(all_donors_json)
+                                new_contacted = contacted + str(next_donor.get('id')) + ","
+                                current_time_str = current_time.strftime("%Y-%m-%d %H:%M:%S")
+                                
+                                execute_query(
+                                    """UPDATE requests 
+                                       SET donor_id=?, contacted=?, last_contacted_time=?, current_donor_index=?
+                                       WHERE id=?""",
+                                    (next_donor.get('id'), new_contacted, current_time_str, next_index + 1, request_id),
+                                    commit=True
+                                )
+                                
+                                # Send email to next donor
+                                rank = next_index + 1
+                                distance = next_donor.get('distance_km', float('inf'))
+                                send_donor_request_email(next_donor, request, rank, len(all_donors), distance)
+                                print(f"✅ Contacted next donor (#{rank}): {next_donor.get('name')}")
+                            else:
+                                print(f"❌ No more donors available")
+                                execute_query(
+                                    "UPDATE requests SET status='No Donors Available' WHERE id=?",
+                                    (request_id,),
+                                    commit=True
+                                )
+                                
+                                # Notify patient
+                                add_notification(
+                                    request.get('patient_email'),
+                                    'no_donors',
+                                    'No Donors Available',
+                                    "All eligible donors have been contacted. No one accepted.",
+                                    priority='High'
+                                )
+                    except Exception as e:
+                        print(f"Error processing request {request_id}: {e}")
+            
+            time.sleep(30)
+        except Exception as e:
+            print(f"Scheduler error: {e}")
+            time.sleep(60)
 
 # ============================================
 # SCHEDULER THREAD
@@ -2728,7 +2732,7 @@ if not st.session_state.get('showing_response', False):
             st.markdown(f"<div class='metric-card'><div class='metric-value'>{lives_saved}</div><div>Lives Saved</div></div>", unsafe_allow_html=True)
         
         st.markdown("---")
-        st.subheader("📦 Current Blood Inventory (Eligible Donors)")
+        st.subheader("📦 Current Blood Inventory")
         inventory_manager.display_inventory_dashboard()
         
         st.markdown("---")
@@ -2867,8 +2871,10 @@ if not st.session_state.get('showing_response', False):
     elif menu == "🆘 Patient Request":
         st.title("🆘 Emergency Blood Request")
         
-        # Get total eligible donors for info
-        total_eligible = len(get_eligible_donors(BLOOD_TYPES[0]))
+        # Get total donors count for info
+        total_donors_count = execute_query("SELECT COUNT(*) as count FROM donors", fetch_one=True)
+        total_donors = total_donors_count['count'] if total_donors_count else 0
+        st.info(f"📊 Total donors in system: {total_donors}")
         st.info(f"⏱️ All eligible donors will be contacted in order of distance. Each donor has {WAIT_MINUTES} minutes to respond.")
         
         with st.form("request_form"):
@@ -2914,7 +2920,15 @@ if not st.session_state.get('showing_response', False):
                             all_donors = get_all_donors_sorted_by_distance(blood, location)
                         
                         if not all_donors:
-                            st.warning("No eligible donors available at the moment.")
+                            st.error(f"❌ No donors found with blood type {blood}!")
+                            
+                            # Show all donors in system for debugging
+                            all_donors_debug = execute_query("SELECT name, blood, status FROM donors", fetch_all=True)
+                            if all_donors_debug:
+                                st.write("Current donors in system:")
+                                for d in all_donors_debug:
+                                    st.write(f"- {d['name']}: {d['blood']} ({d['status']})")
+                            
                             request_id = generate_id('REQ')
                             current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                             
@@ -3486,7 +3500,7 @@ if not st.session_state.get('showing_response', False):
     st.sidebar.markdown("---")
     st.sidebar.markdown(f"""
     <div style='text-align: center; color: #666; font-size: 0.8rem;'>
-        <p>BloodAI v12.1 - Complete System</p>
+        <p>BloodAI v14.0 - Complete System</p>
         <p>📍 <strong style='color: #43e97b;'>All Donors Notified • Closest First • {WAIT_MINUTES} Min Rotation</strong></p>
     </div>
     """, unsafe_allow_html=True)
