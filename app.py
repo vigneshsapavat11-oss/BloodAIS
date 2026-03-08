@@ -1,6 +1,6 @@
 # ============================================
-# 🩸 BLOODAI COMPLETE SYSTEM v16.1
-# ALL DONORS NOTIFIED • CLOSEST FIRST • AUTO-ROTATION
+# 🩸 BLOODAI COMPLETE SYSTEM v17.0
+# FIXED: Lives Saved = 1 per donation • Location Verification • Distance Display
 # ============================================
 
 import streamlit as st
@@ -831,21 +831,46 @@ def generate_id(prefix):
     return f"{prefix}-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:8].upper()}"
 
 def get_coords(location):
-    """Get coordinates from location and cache them"""
+    """Get coordinates from location and cache them - FIXED for better accuracy"""
     try:
-        if not location or not isinstance(location, str):
+        if not location or not isinstance(location, str) or len(location.strip()) < 5:
+            print(f"Invalid location: {location}")
             return None
-        geolocator = Nominatim(user_agent="bloodai_final")
-        loc = geolocator.geocode(location)
+            
+        # Clean up location string
+        location = location.strip()
+        
+        # Try with user agent
+        geolocator = Nominatim(user_agent="bloodai_app_v2")
+        
+        # Add timeout and better parameters
+        loc = geolocator.geocode(
+            location, 
+            timeout=10,
+            exactly_one=True,
+            addressdetails=True
+        )
+        
         if loc:
+            print(f"✅ Found coordinates for '{location}': ({loc.latitude}, {loc.longitude})")
             return (loc.latitude, loc.longitude)
+        
+        # Try with more specific query
+        if 'india' not in location.lower():
+            location_with_country = f"{location}, India"
+            loc = geolocator.geocode(location_with_country, timeout=10)
+            if loc:
+                print(f"✅ Found coordinates with country: ({loc.latitude}, {loc.longitude})")
+                return (loc.latitude, loc.longitude)
+        
+        print(f"❌ Could not find coordinates for '{location}'")
         return None
     except Exception as e:
-        print(f"Geocoding error: {e}")
+        print(f"Geocoding error for '{location}': {e}")
         return None
 
 def update_donor_coordinates(donor_id, location):
-    """Update donor coordinates in database"""
+    """Update donor coordinates in database - FIXED for better verification"""
     coords = get_coords(location)
     if coords:
         lat, lon = coords
@@ -855,8 +880,11 @@ def update_donor_coordinates(donor_id, location):
             (lat, lon, current_time, donor_id),
             commit=True
         )
+        print(f"✅ Updated coordinates for donor {donor_id}: {lat}, {lon}")
         return True
-    return False
+    else:
+        print(f"❌ Failed to get coordinates for location: {location}")
+        return False
 
 def hash_password(password):
     """Hash password using bcrypt"""
@@ -1149,16 +1177,15 @@ def make_json_serializable(obj):
     return str(obj)
 
 # ============================================
-# ENHANCED DONOR SORTING FUNCTION - FIXED TO INCLUDE ALL DONORS
+# ENHANCED DONOR SORTING FUNCTION - FIXED DISTANCE CALCULATION
 # ============================================
 
 def get_all_donors_sorted_by_distance(blood_type, location):
     """
-    Get ALL donors sorted by distance from patient - FIXED to include ALL donors
-    This ensures EVERY donor gets notified, but in the correct order (closest first)
+    Get ALL donors sorted by distance from patient - FIXED distance calculation
     """
     try:
-        # Get ALL donors with matching blood type - REMOVED status filter
+        # Get ALL donors with matching blood type
         donors = execute_query(
             "SELECT * FROM donors WHERE blood=?",
             (blood_type,),
@@ -1170,49 +1197,71 @@ def get_all_donors_sorted_by_distance(blood_type, location):
         if not donors:
             return []
         
-        # If no location provided, return all donors with unknown distance
-        if not location:
-            result = []
-            for donor in donors:
-                donor_copy = dict(donor)
-                donor_copy['distance_km'] = float('inf')
-                donor_copy = make_json_serializable(donor_copy)
-                result.append(donor_copy)
-            return result
-        
+        # Get patient coordinates
         patient_coords = get_coords(location)
-        if not patient_coords:
-            # If no coordinates, return all donors but mark distance as unknown
-            result = []
-            for donor in donors:
-                donor_copy = dict(donor)
-                donor_copy['distance_km'] = float('inf')
-                donor_copy = make_json_serializable(donor_copy)
-                result.append(donor_copy)
-            return result
+        
+        # Debug print
+        if patient_coords:
+            print(f"Patient coordinates: {patient_coords}")
+        else:
+            print(f"Could not get coordinates for patient location: {location}")
         
         donors_with_distance = []
         for donor in donors:
             donor_copy = dict(donor)
+            
+            # Try to get donor coordinates
             donor_lat = donor_copy.get('latitude')
             donor_lon = donor_copy.get('longitude')
             
-            # If donor has coordinates, calculate distance
-            if donor_lat and donor_lon:
+            # If donor has no coordinates but has location, try to get them
+            if (not donor_lat or not donor_lon) and donor_copy.get('location'):
+                donor_coords = get_coords(donor_copy.get('location'))
+                if donor_coords:
+                    donor_lat, donor_lon = donor_coords
+                    # Update donor in database for future use
+                    execute_query(
+                        "UPDATE donors SET latitude=?, longitude=?, is_verified=1 WHERE id=?",
+                        (donor_lat, donor_lon, donor_copy.get('id')),
+                        commit=True
+                    )
+                    print(f"Updated coordinates for donor {donor_copy.get('name')}")
+            
+            # Calculate distance if both coordinates available
+            if donor_lat and donor_lon and patient_coords:
                 try:
                     distance = geodesic(patient_coords, (donor_lat, donor_lon)).km
                     donor_copy['distance_km'] = round(distance, 2)
-                except:
+                    print(f"Donor {donor_copy.get('name')} distance: {distance:.2f} km")
+                except Exception as e:
+                    print(f"Distance calculation error for donor {donor_copy.get('id')}: {e}")
                     donor_copy['distance_km'] = float('inf')
             else:
                 donor_copy['distance_km'] = float('inf')
+                if not donor_lat or not donor_lon:
+                    print(f"Donor {donor_copy.get('name')} has no coordinates")
+                if not patient_coords:
+                    print(f"No patient coordinates available")
             
             # Ensure JSON serializable
             donor_copy = make_json_serializable(donor_copy)
             donors_with_distance.append(donor_copy)
         
-        # Sort by distance (closest first)
-        donors_with_distance.sort(key=lambda x: x.get('distance_km', float('inf')))
+        # Sort by distance (closest first) - infinite distances at the end
+        donors_with_distance.sort(key=lambda x: (
+            float('inf') if x.get('distance_km', float('inf')) == float('inf') else x.get('distance_km', float('inf'))
+        ))
+        
+        # Debug print sorted list
+        print("\nSorted donors by distance:")
+        for i, d in enumerate(donors_with_distance):
+            dist = d.get('distance_km', 'Unknown')
+            if dist == float('inf'):
+                dist_str = "Unknown location"
+            else:
+                dist_str = f"{dist} km"
+            print(f"{i+1}. {d.get('name')} - {dist_str}")
+        
         return donors_with_distance
         
     except Exception as e:
@@ -1610,7 +1659,7 @@ def send_welcome_email(donor_email, donor_name, donor_details):
             <div style="background: #e8f4fd; padding: 20px; border-radius: 15px;">
                 <h3 style="color: #0056b3;">📍 Location-Based Matching</h3>
                 <p>The closest donors are always contacted first! You'll be notified when someone near you needs blood.</p>
-                <p><strong>Note:</strong> If your location is not verified, you'll still receive requests but may not be prioritized correctly. You can update your location in the Donor Dashboard.</p>
+                <p><strong>Tip:</strong> Enter your complete address with city and pincode for accurate distance calculation.</p>
             </div>
             
             <p style="margin-top: 30px;">Together, we can save lives!</p>
@@ -2525,7 +2574,7 @@ class ChatManager:
 
 class DonorImpactVisualizer:
     def calculate_donor_impact(self, donor_id):
-        """Calculate donor's lifetime impact"""
+        """Calculate donor's lifetime impact - FIXED: 1 life per donation"""
         try:
             if not donor_id:
                 return {
@@ -2547,7 +2596,8 @@ class DonorImpactVisualizer:
             if not donations:
                 donations = {'count': 0, 'total_units': 0, 'total_distance': 0}
             
-            lives_saved = (donations.get('total_units') or 0) * 3
+            # FIXED: Each donation saves 1 life (not 3)
+            lives_saved = donations.get('count', 0)
             
             events_attended = execute_query(
                 "SELECT COUNT(*) as count FROM event_registrations WHERE donor_id=? AND attended=1",
@@ -2721,7 +2771,7 @@ st.sidebar.markdown("📧 **All donors notified in order**")
 if not st.session_state.get('showing_response', False):
     
     # ============================================
-    # HOME PAGE - FIXED LIVES SAVED METRIC
+    # HOME PAGE - FIXED LIVES SAVED METRIC (1 per donation)
     # ============================================
     
     if menu == "🏠 Home":
@@ -2762,24 +2812,18 @@ if not st.session_state.get('showing_response', False):
             st.markdown(f"<div class='metric-card'><div class='metric-value'>{total_requests}</div><div>Total Requests</div></div>", unsafe_allow_html=True)
         
         with col4:
-            # FIXED: Lives Saved calculation - properly handle None values
-            total_units = execute_query("SELECT SUM(units) as total FROM donation_history", fetch_one=True)
+            # FIXED: Lives Saved = number of completed donations (1 life per donation)
+            completed_donations = execute_query("SELECT COUNT(*) as count FROM donation_history", fetch_one=True)
             
-            # Debug print to see what's coming from database
-            print(f"Total units from database: {total_units}")
-            
-            if total_units and total_units.get('total'):
-                total_units_value = total_units['total']
-                lives_saved = total_units_value * 3
+            if completed_donations and completed_donations.get('count'):
+                lives_saved = completed_donations['count']
             else:
-                total_units_value = 0
                 lives_saved = 0
                 
             st.markdown(f"<div class='metric-card'><div class='metric-value'>{lives_saved}</div><div>Lives Saved</div></div>", unsafe_allow_html=True)
             
-            # Debug info (can be removed later)
-            if total_units_value > 0:
-                st.caption(f"Based on {total_units_value} units donated")
+            if lives_saved > 0:
+                st.caption(f"Based on {lives_saved} completed donations")
         
         st.markdown("---")
         st.subheader("📦 Current Blood Inventory")
@@ -2815,7 +2859,7 @@ if not st.session_state.get('showing_response', False):
             """, unsafe_allow_html=True)
 
     # ============================================
-    # DONOR REGISTER PAGE
+    # DONOR REGISTER PAGE - FIXED LOCATION VERIFICATION
     # ============================================
 
     elif menu == "📝 Donor Register":
@@ -2835,7 +2879,7 @@ if not st.session_state.get('showing_response', False):
             with col2:
                 blood = st.selectbox("Blood Type*", BLOOD_TYPES)
                 location = st.text_input("Full Address/Location*", 
-                                        help="Enter your complete address for accurate distance calculation")
+                                        help="Enter your complete address with city and pincode for accurate distance calculation")
                 weight = st.number_input("Weight (kg)*", min_value=45, value=70)
                 emergency_contact = st.text_input("Emergency Contact")
                 medical_id = st.text_input("Medical ID (Optional)")
@@ -2865,13 +2909,14 @@ if not st.session_state.get('showing_response', False):
                             donor_id = generate_id('DNR')
                             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                             
+                            # Try to get coordinates with better error handling
                             coords = get_coords(location)
                             lat, lon = coords if coords else (None, None)
                             
                             if coords:
-                                location_note = "✅ Location verified - You'll be prioritized in donor queue"
+                                location_note = "✅ Location verified - You'll be prioritized in donor queue based on distance!"
                             else:
-                                location_note = "⚠️ Could not verify location. You'll still receive requests but may not be prioritized correctly. You can update your location in the Donor Dashboard."
+                                location_note = "⚠️ Could not verify your location. Please update it in the Donor Dashboard with your complete address (include city and pincode) for accurate distance calculation."
                             
                             execute_query(
                                 """INSERT INTO donors 
@@ -2915,7 +2960,7 @@ if not st.session_state.get('showing_response', False):
                             st.error("Email already registered")
 
     # ============================================
-    # PATIENT REQUEST PAGE - FIXED VERSION
+    # PATIENT REQUEST PAGE - FIXED DISTANCE DISPLAY
     # ============================================
 
     elif menu == "🆘 Patient Request":
@@ -2938,7 +2983,7 @@ if not st.session_state.get('showing_response', False):
             
             with col2:
                 location = st.text_input("Hospital Location*", 
-                                        help="Enter complete hospital address for accurate distance calculation")
+                                        help="Enter complete hospital address with city and pincode for accurate distance calculation")
                 hospital = st.text_input("Hospital Name*")
                 doctor = st.text_input("Doctor's Name")
                 hospital_contact = st.text_input("Hospital Contact Email/Phone")
@@ -2962,7 +3007,7 @@ if not st.session_state.get('showing_response', False):
                         lat, lon = coords if coords else (None, None)
                         
                         if not coords:
-                            st.warning("⚠️ Could not verify hospital location. Distance calculations may be less accurate.")
+                            st.warning("⚠️ Could not verify hospital location. Distance calculations may be less accurate. Please include city and pincode.")
                         
                         # Get ALL donors sorted by distance - FIXED to include ALL donors
                         with st.spinner("🔍 Finding all donors and sorting by distance..."):
@@ -3018,40 +3063,40 @@ if not st.session_state.get('showing_response', False):
                             
                             st.success(f"✅ Request submitted! {len(all_donors)} donors will be contacted in order.")
                             
-                            # Show donor queue information
+                            # Show donor queue information with proper distance formatting
                             first_distance = all_donors[0].get('distance_km', 'Unknown')
                             if first_distance == float('inf'):
-                                first_distance_str = "Unknown location"
+                                first_distance_str = "📍 Distance not available (location not verified)"
                             else:
-                                first_distance_str = f"{first_distance} km"
+                                first_distance_str = f"📍 {first_distance} km from hospital"
                             
                             last_distance = all_donors[-1].get('distance_km', 'Unknown')
                             if last_distance == float('inf'):
-                                last_distance_str = "Unknown location"
+                                last_distance_str = "📍 Distance not available"
                             else:
                                 last_distance_str = f"{last_distance} km"
                             
                             st.markdown(f"""
                             <div class='location-priority'>
                                 <h3 style='color: #43e97b;'>📍 Donor Queue Information</h3>
-                                <p><strong>Total Donors:</strong> {len(all_donors)}</p>
-                                <p><strong>Closest Donor Distance:</strong> {first_distance_str}</p>
-                                <p><strong>Farthest Donor Distance:</strong> {last_distance_str}</p>
+                                <p><strong>Total Donors Found:</strong> {len(all_donors)}</p>
+                                <p><strong>Closest Donor:</strong> {first_distance_str}</p>
+                                <p><strong>Farthest Donor:</strong> {last_distance_str}</p>
                                 <p><strong>Time between notifications:</strong> {WAIT_MINUTES} minutes</p>
                                 <p><strong>Estimated total time:</strong> {len(all_donors) * WAIT_MINUTES} minutes if no one accepts</p>
                             </div>
                             """, unsafe_allow_html=True)
                             
-                            # Show top donors
+                            # Show top donors with proper distance display
                             with st.expander(f"View Donor Queue (Top {min(20, len(all_donors))} of {len(all_donors)})"):
                                 for i, donor in enumerate(all_donors[:20]):
                                     distance = donor.get('distance_km', 'Unknown')
                                     if distance == float('inf'):
-                                        distance_str = "Unknown location"
+                                        distance_str = "📍 Location not verified"
                                     else:
-                                        distance_str = f"{distance} km"
+                                        distance_str = f"📍 {distance} km"
                                     
-                                    badge = "🔴 FIRST" if i == 0 else f"#{i+1}"
+                                    badge = "🔴 FIRST - CLOSEST DONOR" if i == 0 else f"#{i+1} in queue"
                                     st.markdown(f"""
                                     <div class='donor-card'>
                                         <span class='priority-badge'>{badge}</span>
@@ -3139,13 +3184,17 @@ if not st.session_state.get('showing_response', False):
                                         if donor:
                                             st.success("✅ Donor Found!")
                                             
-                                            distance_display = f"{req.get('closest_donor_distance', 0):.1f}" if req.get('closest_donor_distance') else "Unknown"
+                                            distance_display = req.get('closest_donor_distance', 0)
+                                            if distance_display and distance_display != float('inf'):
+                                                distance_str = f"{distance_display:.1f} km"
+                                            else:
+                                                distance_str = "Location not verified"
                                             
                                             st.markdown(f"""
                                             **Donor:** {donor.get('name', 'Unknown')}
                                             **Phone:** {donor.get('phone', '')}
                                             **Email:** {donor.get('email', '')}
-                                            **Distance:** {distance_display} km
+                                            **Distance:** {distance_str}
                                             """)
                     else:
                         st.info("No requests found")
@@ -3205,7 +3254,7 @@ if not st.session_state.get('showing_response', False):
                     st.info("No notifications")
 
     # ============================================
-    # DONOR DASHBOARD
+    # DONOR DASHBOARD - FIXED LOCATION UPDATE
     # ============================================
 
     elif menu == "👤 Donor Dashboard":
@@ -3244,14 +3293,20 @@ if not st.session_state.get('showing_response', False):
                     st.metric("Status", "✅ Eligible" if eligible else "⏳ Cooldown", help=msg)
                 
                 if donor.get('latitude') and donor.get('longitude'):
-                    st.success("📍 Location verified - You'll be prioritized in donor queue")
+                    st.success("📍 Location verified - You'll be prioritized in donor queue based on your distance!")
+                    
+                    # Show current distance if available
+                    donor_coords = (donor.get('latitude'), donor.get('longitude'))
+                    st.info(f"📌 Coordinates: {donor_coords[0]:.4f}, {donor_coords[1]:.4f}")
                 else:
-                    st.warning("⚠️ Location not verified. Update to get priority in donor queue.")
-                    new_location = st.text_input("Update your location:")
+                    st.warning("⚠️ Location not verified. Update your location with complete address (include city and pincode) to get priority in donor queue.")
+                    new_location = st.text_input("Update your location (include city and pincode):")
                     if st.button("Update Location"):
                         if update_donor_coordinates(donor['id'], new_location):
-                            st.success("Location updated!")
+                            st.success("Location updated successfully! You'll now be prioritized based on distance.")
                             st.rerun()
+                        else:
+                            st.error("Could not verify location. Please include city and pincode (e.g., 'MG Road, Bangalore, 560001')")
                 
                 st.markdown("---")
                 st.subheader("Donation History")
@@ -3265,8 +3320,12 @@ if not st.session_state.get('showing_response', False):
                     df_history = pd.DataFrame(history)
                     if not df_history.empty:
                         if 'donor_distance_km' in df_history.columns:
-                            st.dataframe(df_history[['donation_date', 'hospital', 'blood_type', 'units', 'donor_distance_km', 'points_earned']], 
-                                       use_container_width=True, hide_index=True)
+                            # Format distance for display
+                            df_display = df_history[['donation_date', 'hospital', 'blood_type', 'units', 'donor_distance_km', 'points_earned']].copy()
+                            df_display['donor_distance_km'] = df_display['donor_distance_km'].apply(
+                                lambda x: f"{x:.1f} km" if x and x != float('inf') else "Not verified"
+                            )
+                            st.dataframe(df_display, use_container_width=True, hide_index=True)
                         else:
                             st.dataframe(df_history, use_container_width=True, hide_index=True)
                 else:
@@ -3553,7 +3612,7 @@ if not st.session_state.get('showing_response', False):
     st.sidebar.markdown("---")
     st.sidebar.markdown(f"""
     <div style='text-align: center; color: #666; font-size: 0.8rem;'>
-        <p>BloodAI v16.1 - Complete System</p>
+        <p>BloodAI v17.0 - Complete System</p>
         <p>📍 <strong style='color: #43e97b;'>All Donors Notified • Closest First • {WAIT_MINUTES} Min Rotation</strong></p>
     </div>
     """, unsafe_allow_html=True)
