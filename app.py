@@ -1,5 +1,5 @@
 # ============================================
-# 🩸 BLOODAI COMPLETE SYSTEM v12.0
+# 🩸 BLOODAI COMPLETE SYSTEM v12.1
 # All Donors Notified • Closest First • 2-Minute Rotation • Cooldown • Email Validation
 # ============================================
 
@@ -390,13 +390,13 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================
-# CONFIGURATION
+# CONFIGURATION - UPDATE THESE LINES
 # ============================================
 
-# Email Configuration - UPDATE THESE WITH YOUR CREDENTIALS
-FROM_EMAIL = "vigneshsapavat11@gmail.com"  # Replace with your email
-APP_PASSWORD = "kmcfregjdseaihwn"  # Replace with your Gmail App Password
-BASE_URL = "https://http://bloodai-smart-donor-system.streamlit.app/"  # Replace with your actual Streamlit URL
+# Email Configuration - CHANGE THESE TO YOUR DETAILS
+FROM_EMAIL = "vigneshsapavat11@gmail.com"  # ← LINE 493 - Change to your email
+APP_PASSWORD = "kmcfregjdseaihwn"  # ← LINE 494 - Change to your Gmail App Password
+BASE_URL = "https://bloodai-smart-donor-system.streamlit.app/"  # ← LINE 495 - Change to your actual Streamlit URL
 
 # System Settings
 WAIT_MINUTES = 2
@@ -2053,7 +2053,7 @@ def show_donor_search():
     status_text.empty()
 
 # ============================================
-# BLOOD INVENTORY MANAGEMENT
+# BLOOD INVENTORY MANAGEMENT - FIXED VERSION
 # ============================================
 
 class BloodInventoryManager:
@@ -2061,28 +2061,61 @@ class BloodInventoryManager:
         self.alert_threshold = BLOOD_STOCK_ALERT_THRESHOLD
     
     def get_inventory_summary(self):
+        """Get blood inventory summary"""
         query = "SELECT blood_type, SUM(units) as total_units FROM blood_inventory WHERE status='Available' GROUP BY blood_type"
         return execute_query(query, fetch_all=True) or []
     
     def check_stock_alerts(self):
+        """Check for low stock alerts - FIXED to return 2 values"""
         inventory = self.get_inventory_summary()
-        blood_status = {}
+        alerts = []
+        blood_type_status = {}
         
+        # Initialize all blood types with 0 units
+        for bt in BLOOD_TYPES:
+            blood_type_status[bt] = {'units': 0, 'status': 'critical'}
+        
+        # Update with actual inventory data
         for item in inventory:
             if item:
-                blood_status[item.get('blood_type')] = {
-                    'units': item.get('total_units', 0),
-                    'status': 'normal' if item.get('total_units', 0) >= self.alert_threshold else 'low'
-                }
+                bt = item.get('blood_type')
+                units = item.get('total_units', 0)
+                
+                if units >= self.alert_threshold:
+                    status = 'normal'
+                elif units > 0:
+                    status = 'low'
+                else:
+                    status = 'critical'
+                
+                blood_type_status[bt] = {'units': units, 'status': status}
+                
+                # Create alert if needed
+                if units < self.alert_threshold:
+                    urgency = f'LOW STOCK - Only {units} units' if units > 0 else 'CRITICAL - Out of Stock'
+                    alerts.append({
+                        'blood_type': bt,
+                        'current_stock': units,
+                        'threshold': self.alert_threshold,
+                        'urgency': urgency
+                    })
         
-        for bt in BLOOD_TYPES:
-            if bt not in blood_status:
-                blood_status[bt] = {'units': 0, 'status': 'critical'}
-        
-        return blood_status
+        return alerts, blood_type_status
     
     def display_inventory_dashboard(self):
-        blood_status = self.check_stock_alerts()
+        """Display interactive inventory dashboard"""
+        alerts, blood_status = self.check_stock_alerts()
+        
+        if alerts:
+            st.warning(f"⚠️ {len(alerts)} stock alerts detected")
+            
+            cols = st.columns(min(len(alerts), 4))
+            for i, alert in enumerate(alerts[:4]):
+                with cols[i % len(cols)]:
+                    if 'CRITICAL' in alert.get('urgency', ''):
+                        st.error(f"🩸 {alert.get('blood_type', 'Unknown')}\n{alert.get('urgency', '')}")
+                    else:
+                        st.warning(f"🩸 {alert.get('blood_type', 'Unknown')}\n{alert.get('urgency', '')}")
         
         st.subheader("📊 Current Blood Inventory")
         
@@ -3453,7 +3486,7 @@ if not st.session_state.get('showing_response', False):
     st.sidebar.markdown("---")
     st.sidebar.markdown(f"""
     <div style='text-align: center; color: #666; font-size: 0.8rem;'>
-        <p>BloodAI v12.0 - Complete System</p>
+        <p>BloodAI v12.1 - Complete System</p>
         <p>📍 <strong style='color: #43e97b;'>All Donors Notified • Closest First • {WAIT_MINUTES} Min Rotation</strong></p>
     </div>
     """, unsafe_allow_html=True)
