@@ -1,6 +1,6 @@
 # ============================================
-# 🩸 BLOODAI ENHANCED PROFESSIONAL SYSTEM v9.7
-# COMPLETE SYSTEM WITH FIXED EMAIL DELIVERY - ALL ERRORS RESOLVED
+# 🩸 BLOODAI COMPLETE SYSTEM v12.0
+# All Donors Notified • Closest First • 2-Minute Rotation • Cooldown • Email Validation
 # ============================================
 
 import streamlit as st
@@ -367,6 +367,25 @@ st.markdown("""
         margin: 1rem 0;
         text-align: center;
     }
+    
+    /* Queue container */
+    .queue-container {
+        background: linear-gradient(135deg, #667eea10, #764ba210);
+        padding: 1.5rem;
+        border-radius: 15px;
+        margin: 1rem 0;
+        border: 1px solid #667eea;
+    }
+    
+    .priority-badge {
+        background: #ff6b6b;
+        color: white;
+        padding: 0.2rem 0.5rem;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        display: inline-block;
+        margin-right: 10px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -374,10 +393,10 @@ st.markdown("""
 # CONFIGURATION
 # ============================================
 
-# Email Configuration - CORRECTED
-FROM_EMAIL = "vigneshsapavat11@gmail.com"  # This is CORRECT (with 'e')
-APP_PASSWORD = "kmcfregjdseaihwn"  # Your Gmail App Password
-BASE_URL = "http://localhost:8501"
+# Email Configuration - UPDATE THESE WITH YOUR CREDENTIALS
+FROM_EMAIL = "vigneshsapavat11@gmail.com"  # Replace with your email
+APP_PASSWORD = "kmcfregjdseaihwn"  # Replace with your Gmail App Password
+BASE_URL = "https://http://bloodai-smart-donor-system.streamlit.app/"  # Replace with your actual Streamlit URL
 
 # System Settings
 WAIT_MINUTES = 2
@@ -417,7 +436,7 @@ if 'showing_response' not in st.session_state:
     st.session_state.showing_response = False
 
 # ============================================
-# EMAIL VALIDATION FUNCTION
+# EMAIL VALIDATION FUNCTIONS
 # ============================================
 
 def is_valid_email(email):
@@ -431,15 +450,18 @@ def normalize_email(email):
     """Normalize email address to prevent common typos"""
     if not email:
         return email
-    # Convert to lowercase
     email = email.lower().strip()
-    # Fix common typos in your email domain
+    # Fix common domain typos
     if email.endswith('@gmal.com'):
         email = email.replace('@gmal.com', '@gmail.com')
     if email.endswith('@gmai.com'):
         email = email.replace('@gmai.com', '@gmail.com')
     if email.endswith('@gamil.com'):
         email = email.replace('@gamil.com', '@gmail.com')
+    if email.endswith('@yahooo.com'):
+        email = email.replace('@yahooo.com', '@yahoo.com')
+    if email.endswith('@hotmial.com'):
+        email = email.replace('@hotmial.com', '@hotmail.com')
     return email
 
 # ============================================
@@ -481,16 +503,16 @@ def execute_query(query, params=(), fetch_one=False, fetch_all=False, commit=Fal
         return None if fetch_one or fetch_all else -1
 
 # ============================================
-# COMPLETE DATABASE SETUP
+# COMPLETE DATABASE SETUP WITH QUEUE SUPPORT
 # ============================================
 
 def init_database():
-    """Initialize complete database with all tables"""
+    """Initialize complete database with all tables including queue support"""
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
             
-            # Donors table
+            # Donors table with coordinates
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS donors(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -511,16 +533,63 @@ def init_database():
                 weight REAL,
                 age INTEGER,
                 gender TEXT,
+                notification_preference TEXT DEFAULT 'email',
                 points INTEGER DEFAULT 0,
                 donor_level TEXT DEFAULT 'New Donor 🌟',
                 emergency_contact TEXT,
                 medical_id TEXT,
+                qr_code TEXT,
+                total_points_earned INTEGER DEFAULT 0,
+                badges TEXT,
+                last_health_check TEXT,
                 is_verified INTEGER DEFAULT 0,
+                referred_by INTEGER,
+                donation_reminder INTEGER DEFAULT 1,
                 last_location_update TEXT
             )
             """)
             
-            # Requests table
+            # Blood Inventory Table
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS blood_inventory(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                blood_type TEXT,
+                units INTEGER DEFAULT 0,
+                hospital_id INTEGER,
+                expiry_date TEXT,
+                batch_number TEXT,
+                collection_date TEXT,
+                status TEXT DEFAULT 'Available',
+                location TEXT,
+                last_updated TEXT,
+                quality_checked INTEGER DEFAULT 0
+            )
+            """)
+            
+            # Hospitals Table
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS hospitals(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                hospital_id TEXT UNIQUE,
+                name TEXT,
+                registration_number TEXT UNIQUE,
+                address TEXT,
+                city TEXT,
+                state TEXT,
+                phone TEXT,
+                email TEXT,
+                emergency_contact TEXT,
+                license_number TEXT,
+                verified INTEGER DEFAULT 0,
+                registration_date TEXT,
+                latitude REAL,
+                longitude REAL,
+                blood_bank_capacity INTEGER,
+                accreditation TEXT
+            )
+            """)
+            
+            # Requests table with queue support
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS requests(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -533,15 +602,175 @@ def init_database():
                 latitude REAL,
                 longitude REAL,
                 hospital TEXT,
+                hospital_id INTEGER,
                 hospital_contact TEXT,
+                doctor_name TEXT,
                 status TEXT DEFAULT 'Pending',
                 donor_id INTEGER,
                 time TEXT,
                 contacted TEXT DEFAULT '',
+                current_donor_index INTEGER DEFAULT 0,
                 last_contacted_time TEXT,
+                urgency_level TEXT DEFAULT 'High',
                 units_needed INTEGER DEFAULT 1,
                 completed_time TEXT,
-                closest_donor_distance REAL
+                patient_age INTEGER,
+                patient_gender TEXT,
+                reason TEXT,
+                closest_donor_distance REAL,
+                all_donors TEXT DEFAULT '',
+                total_donors_count INTEGER DEFAULT 0,
+                FOREIGN KEY (hospital_id) REFERENCES hospitals (id)
+            )
+            """)
+            
+            # Donation Events Table
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS donation_events(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id TEXT UNIQUE,
+                event_name TEXT,
+                organizer TEXT,
+                organizer_id INTEGER,
+                location TEXT,
+                start_date TEXT,
+                end_date TEXT,
+                start_time TEXT,
+                end_time TEXT,
+                target_donations INTEGER,
+                registered_donors INTEGER DEFAULT 0,
+                completed_donations INTEGER DEFAULT 0,
+                status TEXT DEFAULT 'Upcoming',
+                contact_person TEXT,
+                contact_phone TEXT,
+                description TEXT,
+                latitude REAL,
+                longitude REAL,
+                amenities TEXT,
+                blood_types_needed TEXT,
+                incentives TEXT
+            )
+            """)
+            
+            # Event Registrations Table
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS event_registrations(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id INTEGER,
+                donor_id INTEGER,
+                registration_date TEXT,
+                attended INTEGER DEFAULT 0,
+                feedback TEXT,
+                rating INTEGER,
+                check_in_time TEXT,
+                points_earned INTEGER DEFAULT 0,
+                FOREIGN KEY (event_id) REFERENCES donation_events (id),
+                FOREIGN KEY (donor_id) REFERENCES donors (id)
+            )
+            """)
+            
+            # Rewards Store Table
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS rewards(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                reward_id TEXT UNIQUE,
+                item_name TEXT,
+                description TEXT,
+                points_required INTEGER,
+                stock INTEGER,
+                category TEXT,
+                image_url TEXT,
+                available INTEGER DEFAULT 1,
+                vendor TEXT,
+                discount_percentage INTEGER DEFAULT 0
+            )
+            """)
+            
+            # Donor Redemptions Table
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS redemptions(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                redemption_id TEXT UNIQUE,
+                donor_id INTEGER,
+                reward_id INTEGER,
+                redemption_date TEXT,
+                points_spent INTEGER,
+                status TEXT DEFAULT 'Pending',
+                delivery_address TEXT,
+                tracking_number TEXT,
+                delivered_date TEXT,
+                FOREIGN KEY (donor_id) REFERENCES donors (id),
+                FOREIGN KEY (reward_id) REFERENCES rewards (id)
+            )
+            """)
+            
+            # Chat Messages Table
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS chat_messages(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                message_id TEXT UNIQUE,
+                sender_id INTEGER,
+                receiver_id INTEGER,
+                message TEXT,
+                timestamp TEXT,
+                read INTEGER DEFAULT 0,
+                conversation_id TEXT,
+                message_type TEXT DEFAULT 'text',
+                FOREIGN KEY (sender_id) REFERENCES donors (id),
+                FOREIGN KEY (receiver_id) REFERENCES donors (id)
+            )
+            """)
+            
+            # Health Checks Table
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS health_checks(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                check_id TEXT UNIQUE,
+                donor_id INTEGER,
+                check_date TEXT,
+                hemoglobin REAL,
+                blood_pressure_systolic INTEGER,
+                blood_pressure_diastolic INTEGER,
+                pulse_rate INTEGER,
+                temperature REAL,
+                weight REAL,
+                height REAL,
+                bmi REAL,
+                eligible BOOLEAN,
+                notes TEXT,
+                next_check_date TEXT,
+                FOREIGN KEY (donor_id) REFERENCES donors (id)
+            )
+            """)
+            
+            # Achievements Table
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS achievements(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                achievement_id TEXT UNIQUE,
+                donor_id INTEGER,
+                achievement_type TEXT,
+                achievement_date TEXT,
+                description TEXT,
+                points_awarded INTEGER,
+                badge_icon TEXT,
+                FOREIGN KEY (donor_id) REFERENCES donors (id)
+            )
+            """)
+            
+            # Notifications Table
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS notifications(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                notification_id TEXT UNIQUE,
+                user_email TEXT,
+                type TEXT,
+                title TEXT,
+                message TEXT,
+                date TEXT,
+                read INTEGER DEFAULT 0,
+                action_url TEXT,
+                priority TEXT DEFAULT 'Normal'
             )
             """)
             
@@ -556,24 +785,12 @@ def init_database():
                 hospital TEXT,
                 blood_type TEXT,
                 units INTEGER DEFAULT 1,
+                status TEXT DEFAULT 'Completed',
                 points_earned INTEGER DEFAULT 0,
+                verified_by TEXT,
                 donor_distance_km REAL,
                 FOREIGN KEY (donor_id) REFERENCES donors (id),
                 FOREIGN KEY (request_id) REFERENCES requests (id)
-            )
-            """)
-            
-            # Notifications Table
-            cursor.execute("""
-            CREATE TABLE IF NOT EXISTS notifications(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                notification_id TEXT UNIQUE,
-                user_email TEXT,
-                type TEXT,
-                title TEXT,
-                message TEXT,
-                date TEXT,
-                read INTEGER DEFAULT 0
             )
             """)
             
@@ -593,17 +810,6 @@ def init_database():
             )
             """)
             
-            # Blood Inventory Table
-            cursor.execute("""
-            CREATE TABLE IF NOT EXISTS blood_inventory(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                blood_type TEXT,
-                units INTEGER DEFAULT 0,
-                expiry_date TEXT,
-                status TEXT DEFAULT 'Available'
-            )
-            """)
-            
             conn.commit()
             print("✅ Database initialized successfully")
             
@@ -616,7 +822,7 @@ if not st.session_state.db_initialized:
     st.session_state.db_initialized = True
 
 # ============================================
-# UTILITY FUNCTIONS
+# ENHANCED UTILITY FUNCTIONS
 # ============================================
 
 def generate_id(prefix):
@@ -624,11 +830,11 @@ def generate_id(prefix):
     return f"{prefix}-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:8].upper()}"
 
 def get_coords(location):
-    """Get coordinates from location"""
+    """Get coordinates from location and cache them"""
     try:
         if not location or not isinstance(location, str):
             return None
-        geolocator = Nominatim(user_agent="bloodai_app")
+        geolocator = Nominatim(user_agent="bloodai_final")
         loc = geolocator.geocode(location)
         if loc:
             return (loc.latitude, loc.longitude)
@@ -727,7 +933,6 @@ def send_email(to_email, subject, message, html=False):
         error_msg = "Email authentication failed. Check your Gmail App Password."
         log_email(to_email, subject, 'email', 'failed', error_msg)
         print(f"❌ {error_msg}")
-        st.error("⚠️ Email configuration error. Please check your Gmail App Password.")
         return False
         
     except Exception as e:
@@ -736,7 +941,7 @@ def send_email(to_email, subject, message, html=False):
         print(f"❌ Email error: {error_msg}")
         return False
 
-def add_notification(user_email, notif_type, title, message):
+def add_notification(user_email, notif_type, title, message, priority='Normal', action_url=None):
     """Add notification"""
     try:
         if not user_email or not is_valid_email(user_email):
@@ -747,9 +952,9 @@ def add_notification(user_email, notif_type, title, message):
         
         execute_query(
             """INSERT INTO notifications 
-               (notification_id, user_email, type, title, message, date, read)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (notification_id, user_email, notif_type, title, message, current_time, 0),
+               (notification_id, user_email, type, title, message, date, priority, action_url)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (notification_id, user_email, notif_type, title, message, current_time, priority, action_url),
             commit=True
         )
         return True
@@ -789,7 +994,7 @@ def mark_notifications_read(user_email):
 # ============================================
 
 def is_donor_eligible(donor):
-    """Check if donor is eligible to donate"""
+    """Check if donor is eligible to donate (respects cooldown period)"""
     try:
         if not donor:
             return False, "Invalid donor"
@@ -816,7 +1021,7 @@ def is_donor_eligible(donor):
         return True, "Eligible"
 
 def get_eligible_donors(blood_type):
-    """Get all eligible donors for a blood type"""
+    """Get all eligible donors for a blood type (respects cooldown)"""
     try:
         donors = execute_query(
             "SELECT * FROM donors WHERE blood=? AND status='Available'",
@@ -877,52 +1082,81 @@ def update_donor_points(donor_id):
         return 0, "New Donor 🌟"
 
 # ============================================
-# FIND NEXT DONOR FUNCTION - UNLIMITED DISTANCE
+# ML MODEL FOR DONOR PREDICTION
 # ============================================
 
-def find_next_donor(blood_type, location, contacted_ids):
+@st.cache_resource
+def train_model():
+    """Train ML model for donor prediction"""
+    try:
+        donors = execute_query(
+            "SELECT blood, location, status, total_donations, age, weight FROM donors WHERE status='Available'",
+            fetch_all=True
+        ) or []
+        
+        if len(donors) < 3:
+            return None
+            
+        X = []
+        y = []
+        
+        for d in donors:
+            if d:
+                blood_hash = sum(ord(c) for c in d.get('blood', '')) % 10 if d.get('blood') else 0
+                loc_hash = sum(ord(c) for c in d.get('location', '')) % 10 if d.get('location') else 0
+                donations = d.get('total_donations', 0)
+                age = d.get('age', 30)
+                weight = d.get('weight', 70)
+                
+                X.append([blood_hash, loc_hash, donations, age, weight])
+                y.append(1 if d.get('status') == "Available" else 0)
+        
+        if len(X) > 0:
+            model = RandomForestClassifier(n_estimators=100, random_state=42)
+            model.fit(X, y)
+            return model
+        return None
+    except Exception as e:
+        print(f"Model training error: {e}")
+        return None
+
+model = train_model()
+
+# ============================================
+# ENHANCED DONOR SORTING FUNCTION - GET ALL DONORS SORTED BY DISTANCE
+# ============================================
+
+def get_all_donors_sorted_by_distance(blood_type, location):
     """
-    Find the next best eligible donor based on location proximity
-    UNLIMITED DISTANCE - nearest donor always contacted first
+    Get ALL eligible donors sorted by distance from patient
+    This ensures EVERY donor gets notified, but in the correct order (closest first)
     """
     try:
         eligible_donors = get_eligible_donors(blood_type)
         if not eligible_donors:
-            print(f"No eligible donors found")
-            return None, None
-        
-        contacted_list = []
-        if contacted_ids:
-            contacted_list = [int(x) for x in contacted_ids.split(',') if x and x.strip()]
-        
-        available = [d for d in eligible_donors if d and d.get('id') not in contacted_list]
-        if not available:
-            print(f"All donors have been contacted already")
-            return None, None
-        
-        print(f"Found {len(available)} available donors")
+            return []
         
         patient_coords = get_coords(location)
-        
         if not patient_coords:
-            print("Could not get patient coordinates")
-            return available[0] if available else None, None
-        
-        patient_lat, patient_lon = patient_coords
+            # If no coordinates, return all donors but mark distance as unknown
+            for donor in eligible_donors:
+                donor['distance_km'] = float('inf')
+            return eligible_donors
         
         donors_with_distance = []
-        
-        for donor in available:
+        for donor in eligible_donors:
             if not donor:
                 continue
                 
             donor_lat = donor.get('latitude')
             donor_lon = donor.get('longitude')
             
+            # Try to get coordinates if missing
             if not donor_lat or not donor_lon:
                 donor_coords = get_coords(donor.get('location', ''))
                 if donor_coords:
                     donor_lat, donor_lon = donor_coords
+                    # Update donor in database for future use
                     execute_query(
                         "UPDATE donors SET latitude=?, longitude=?, is_verified=1 WHERE id=?",
                         (donor_lat, donor_lon, donor.get('id')),
@@ -931,81 +1165,87 @@ def find_next_donor(blood_type, location, contacted_ids):
             
             if donor_lat and donor_lon:
                 try:
-                    donor_coords = (donor_lat, donor_lon)
-                    distance = geodesic(patient_coords, donor_coords).km
-                    
-                    donors_with_distance.append({
-                        'donor': donor,
-                        'distance': distance,
-                        'verified': donor.get('is_verified', 0)
-                    })
-                        
-                except Exception as e:
-                    print(f"Distance calculation error")
+                    distance = geodesic(patient_coords, (donor_lat, donor_lon)).km
+                    donor_copy = donor.copy()
+                    donor_copy['distance_km'] = round(distance, 2)
+                    donors_with_distance.append(donor_copy)
+                except:
+                    donor_copy = donor.copy()
+                    donor_copy['distance_km'] = float('inf')
+                    donors_with_distance.append(donor_copy)
             else:
-                donors_with_distance.append({
-                    'donor': donor,
-                    'distance': float('inf'),
-                    'verified': 0
-                })
+                donor_copy = donor.copy()
+                donor_copy['distance_km'] = float('inf')
+                donors_with_distance.append(donor_copy)
         
-        donors_with_distance.sort(key=lambda x: x['distance'])
-        
-        if not donors_with_distance:
-            return None, None
-        
-        closest = donors_with_distance[0]
-        return closest['donor'], donors_with_distance
+        # Sort by distance (closest first)
+        donors_with_distance.sort(key=lambda x: x['distance_km'])
+        return donors_with_distance
         
     except Exception as e:
-        print(f"Error in find_next_donor: {e}")
+        print(f"Error sorting donors: {e}")
+        return []
+
+def get_next_donor_to_contact(request):
+    """
+    Get the next donor in the priority list that hasn't been contacted yet
+    """
+    try:
+        all_donors_json = request.get('all_donors', '')
+        current_index = request.get('current_donor_index', 0)
+        contacted = request.get('contacted', '')
+        
+        if not all_donors_json:
+            return None, None
+        
+        all_donors = json.loads(all_donors_json)
+        contacted_list = [int(x) for x in contacted.split(',') if x and x.strip()]
+        
+        # Find the next donor not yet contacted
+        for i in range(current_index, len(all_donors)):
+            donor_id = all_donors[i].get('id')
+            if donor_id and donor_id not in contacted_list:
+                return all_donors[i], i
+        
+        return None, None
+        
+    except Exception as e:
+        print(f"Error getting next donor: {e}")
         return None, None
 
 # ============================================
-# ENHANCED DONOR REQUEST EMAIL
+# ENHANCED DONOR REQUEST EMAIL (with queue position)
 # ============================================
 
-def send_donor_request_email(donor, request, donor_rank=1, total_donors=1):
-    """Send email to donor when requested"""
+def send_donor_request_email(donor, request, donor_rank, total_donors, donor_distance=None):
+    """Send email to donor with accept/reject links and queue position"""
     try:
         if not donor or not request:
             return False
         
-        # Get donor email and normalize
         donor_email = normalize_email(donor.get('email'))
         
-        # Validate donor email
         if not is_valid_email(donor_email):
             print(f"❌ Invalid donor email: {donor_email}")
             return False
             
-        base_url = st.get_option("server.baseUrlPath") or "http://localhost:8501"
+        base_url = st.get_option("server.baseUrlPath") or BASE_URL
         
         accept_url = f"{base_url}/?accept={request.get('id')}&donor={donor.get('id')}"
         reject_url = f"{base_url}/?reject={request.get('id')}&donor={donor.get('id')}"
         
         subject = f"🩸 URGENT: Blood Donation Needed - {request.get('blood', 'Unknown')}"
         
-        # Calculate distance
-        distance_text = ""
-        priority_text = ""
-        patient_coords = get_coords(request.get('location', ''))
-        donor_coords = (donor.get('latitude'), donor.get('longitude')) if donor.get('latitude') else get_coords(donor.get('location', ''))
-        
-        if patient_coords and donor_coords and donor_coords[0] and donor_coords[1]:
-            try:
-                distance = geodesic(patient_coords, donor_coords).km
-                distance_display = f"{distance:.1f}" if distance is not None else "Unknown"
-                distance_text = f"<p><strong>📍 Distance from you:</strong> <span style='font-size: 1.2rem; color: #ff6b6b;'>{distance_display} km</span></p>"
-                
-                if donor_rank == 1:
-                    priority_text = "<p><strong style='color: #43e97b;'>🌟 You are the CLOSEST donor to this patient!</strong></p>"
-                else:
-                    priority_text = f"<p><strong>Donor Rank:</strong> #{donor_rank} of {total_donors} eligible donors</p>"
-            except:
-                pass
+        # Priority message based on rank
+        if donor_rank == 1:
+            priority_message = "🌟 You are the CLOSEST donor to this patient!"
+            priority_color = "#43e97b"
         else:
-            distance_text = "<p><strong>📍 Distance:</strong> Unable to calculate</p>"
+            priority_message = f"You are #{donor_rank} in the queue of {total_donors} donors"
+            priority_color = "#ff6b6b"
+        
+        distance_display = f"{donor_distance:.1f}" if donor_distance and donor_distance != float('inf') else "Unknown"
+        distance_text = f"({donor_distance:.1f} km away)" if donor_distance and donor_distance != float('inf') else "(location unknown)"
         
         message = f"""
 <!DOCTYPE html>
@@ -1013,40 +1253,59 @@ def send_donor_request_email(donor, request, donor_rank=1, total_donors=1):
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {{ font-family: Arial, sans-serif; line-height: 1.6; margin: 0; padding: 0; }}
+        .container {{ max-width: 600px; margin: 20px auto; background: white; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }}
+        .header {{ background: #ff6b6b; padding: 30px; text-align: center; color: white; }}
+        .content {{ padding: 30px; }}
+        .priority-box {{ background: {priority_color}20; padding: 20px; border-radius: 10px; margin: 20px 0; border: 2px solid {priority_color}; }}
+        .details-box {{ background: #f8f9fa; padding: 20px; border-radius: 10px; }}
+        .button {{ display: inline-block; padding: 15px 30px; text-decoration: none; border-radius: 50px; margin: 10px; font-weight: bold; }}
+        .accept {{ background: #43e97b; color: white; }}
+        .reject {{ background: #ff6b6b; color: white; }}
+        .footer {{ background: #fff3cd; padding: 15px; border-radius: 5px; margin-top: 20px; }}
+        table {{ width: 100%; border-collapse: collapse; }}
+        td {{ padding: 8px; }}
+    </style>
 </head>
-<body style="font-family: Arial, sans-serif; margin: 0; padding: 0; background: linear-gradient(135deg, #667eea20, #764ba220);">
-    <div style="max-width: 600px; margin: 20px auto; background: white; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.2);">
-        <div style="background: linear-gradient(135deg, #ff6b6b, #ee5253); padding: 30px; text-align: center;">
-            <h1 style="color: white; margin: 0; font-size: 32px;">🩸 URGENT BLOOD REQUEST</h1>
-            <p style="color: white; margin: 10px 0 0;">Someone needs your help!</p>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 style="margin: 0; font-size: 32px;">🩸 URGENT BLOOD REQUEST</h1>
+            <p style="margin: 10px 0 0;">Someone needs your help!</p>
         </div>
         
-        <div style="padding: 30px;">
-            <h2>Hello {donor.get('name', 'Donor')},</h2>
+        <div class="content">
+            <h2 style="margin-top: 0;">Hello {donor.get('name', 'Donor')},</h2>
             
-            <p>A patient urgently needs your blood type. You are the closest available donor.</p>
+            <p>A patient urgently needs your blood type. You are being contacted because you are an eligible donor.</p>
             
-            {priority_text}
+            <div class="priority-box">
+                <h3 style="color: {priority_color}; margin-top: 0;">📍 YOUR POSITION IN QUEUE</h3>
+                <p><strong>{priority_message}</strong></p>
+                <p><strong>Distance:</strong> {distance_display} km {distance_text}</p>
+                <p><strong>Queue Position:</strong> #{donor_rank} of {total_donors}</p>
+            </div>
             
-            <div style="background: #f8f9fa; padding: 20px; border-radius: 15px; margin: 20px 0; border-left: 5px solid #ff6b6b;">
-                <h3 style="color: #ff6b6b;">📋 REQUEST DETAILS</h3>
-                <table style="width: 100%;">
-                    <tr><td><strong>Blood Type:</strong></td><td><span style="background: #ff6b6b; color: white; padding: 5px 15px; border-radius: 5px;">{request.get('blood', 'Unknown')}</span></td></tr>
+            <div class="details-box">
+                <h3 style="color: #ff6b6b; margin-top: 0;">📋 REQUEST DETAILS</h3>
+                <table>
+                    <tr><td><strong>Blood Type:</strong></td><td><span style="background: #ff6b6b; color: white; padding: 3px 10px; border-radius: 5px;">{request.get('blood', 'Unknown')}</span></td></tr>
                     <tr><td><strong>Units Needed:</strong></td><td>{request.get('units_needed', 1)}</td></tr>
                     <tr><td><strong>Hospital:</strong></td><td>{request.get('hospital', 'Unknown')}</td></tr>
                     <tr><td><strong>Location:</strong></td><td>{request.get('location', 'Unknown')}</td></tr>
                     <tr><td><strong>Patient:</strong></td><td>{request.get('patient', 'Unknown')}</td></tr>
                 </table>
-                {distance_text}
             </div>
             
             <div style="text-align: center; margin: 30px 0;">
-                <a href="{accept_url}" style="background: #43e97b; color: white; padding: 15px 30px; text-decoration: none; border-radius: 50px; margin: 0 10px; display: inline-block;">✅ ACCEPT</a>
-                <a href="{reject_url}" style="background: #ff6b6b; color: white; padding: 15px 30px; text-decoration: none; border-radius: 50px; margin: 0 10px; display: inline-block;">❌ REJECT</a>
+                <a href="{accept_url}" class="button accept" style="background: #43e97b; color: white; padding: 15px 30px; text-decoration: none; border-radius: 50px; margin: 10px; display: inline-block;">✅ ACCEPT - SAVE A LIFE</a>
+                <a href="{reject_url}" class="button reject" style="background: #ff6b6b; color: white; padding: 15px 30px; text-decoration: none; border-radius: 50px; margin: 10px; display: inline-block;">❌ REJECT</a>
             </div>
             
-            <div style="background: #fff3cd; padding: 20px; border-radius: 15px;">
-                <p><strong>⏰ Important:</strong> If you don't respond within {WAIT_MINUTES} minutes, we'll contact the next closest donor.</p>
+            <div class="footer">
+                <p style="margin: 0;"><strong>⏰ Important:</strong> You have {WAIT_MINUTES} minutes to respond. If you don't respond, we'll contact the next donor in line.</p>
+                <p style="margin: 10px 0 0;"><strong>Note:</strong> All {total_donors} eligible donors will be contacted in order of distance. You are #{donor_rank} in this queue.</p>
             </div>
         </div>
     </div>
@@ -1066,12 +1325,11 @@ def send_donor_request_email(donor, request, donor_rank=1, total_donors=1):
 # ============================================
 
 def send_patient_notification_email(patient_email, patient_name, donor, request, donor_distance=None):
-    """Send email to patient when donor accepts"""
+    """Send email to patient when donor accepts - includes ALL donor details"""
     try:
         if not patient_email or not donor or not request:
             return False
         
-        # Normalize and validate patient email
         patient_email = normalize_email(patient_email)
         
         if not is_valid_email(patient_email):
@@ -1080,7 +1338,6 @@ def send_patient_notification_email(patient_email, patient_name, donor, request,
             
         subject = f"✅ Donor Found - Blood Request #{request.get('request_id', '')[:8]}"
         
-        # Calculate distance if not provided
         if not donor_distance and request.get('latitude') and donor.get('latitude'):
             try:
                 donor_distance = geodesic(
@@ -1098,36 +1355,50 @@ def send_patient_notification_email(patient_email, patient_name, donor, request,
 <html>
 <head>
     <meta charset="UTF-8">
+    <style>
+        body {{ font-family: Arial, sans-serif; line-height: 1.6; margin: 0; padding: 0; }}
+        .container {{ max-width: 600px; margin: 20px auto; background: white; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }}
+        .header {{ background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); padding: 30px; text-align: center; color: white; }}
+        .content {{ padding: 30px; }}
+        .donor-box {{ background: linear-gradient(135deg, #43e97b20, #38f9d720); padding: 20px; border-radius: 15px; margin: 20px 0; border: 2px solid #43e97b; }}
+        .details-box {{ background: #f8f9fa; padding: 20px; border-radius: 10px; }}
+        .next-steps {{ background: #fff3cd; padding: 20px; border-radius: 10px; }}
+        .button {{ display: inline-block; padding: 15px 30px; text-decoration: none; border-radius: 50px; margin: 10px; font-weight: bold; }}
+        .call {{ background: #667eea; color: white; }}
+        .email {{ background: #764ba2; color: white; }}
+        table {{ width: 100%; border-collapse: collapse; }}
+        td {{ padding: 10px; }}
+    </style>
 </head>
-<body style="font-family: Arial, sans-serif; margin: 0; padding: 0; background: linear-gradient(135deg, #43e97b20, #38f9d720);">
-    <div style="max-width: 600px; margin: 20px auto; background: white; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.2);">
-        <div style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); padding: 30px; text-align: center;">
-            <h1 style="color: white; margin: 0; font-size: 32px;">✅ DONOR FOUND!</h1>
-            <p style="color: white; margin: 10px 0 0;">A donor has accepted your request</p>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 style="margin: 0; font-size: 32px;">✅ DONOR FOUND!</h1>
+            <p style="margin: 10px 0 0;">A donor has accepted your request</p>
         </div>
         
-        <div style="padding: 30px;">
-            <h2>Dear {patient_name},</h2>
+        <div class="content">
+            <h2 style="margin-top: 0;">Dear {patient_name},</h2>
             
             <p>Great news! A donor has accepted your blood request. Here are their contact details:</p>
             
-            <div style="background: linear-gradient(135deg, #43e97b20, #38f9d720); padding: 20px; border-radius: 15px; margin: 20px 0; border: 2px solid #43e97b;">
-                <h3 style="color: #43e97b;">🩸 DONOR DETAILS</h3>
-                <table style="width: 100%; border-collapse: collapse;">
-                    <tr><td style="padding: 10px;"><strong>Name:</strong></td><td style="padding: 10px;">{donor.get('name', 'Unknown')}</td></tr>
-                    <tr><td style="padding: 10px;"><strong>Blood Type:</strong></td><td style="padding: 10px;"><span style="background: #ff6b6b; color: white; padding: 5px 15px; border-radius: 5px;">{donor.get('blood', 'Unknown')}</span></td></tr>
-                    <tr><td style="padding: 10px;"><strong>Phone:</strong></td><td style="padding: 10px;"><a href="tel:{donor.get('phone', '')}" style="color: #667eea; text-decoration: none; font-weight: bold;">{donor.get('phone', '')}</a></td></tr>
-                    <tr><td style="padding: 10px;"><strong>Email:</strong></td><td style="padding: 10px;"><a href="mailto:{donor.get('email', '')}" style="color: #667eea;">{donor.get('email', '')}</a></td></tr>
-                    <tr><td style="padding: 10px;"><strong>Location:</strong></td><td style="padding: 10px;">{donor.get('location', 'Unknown')}</td></tr>
+            <div class="donor-box">
+                <h3 style="color: #43e97b; margin-top: 0;">🩸 DONOR DETAILS</h3>
+                <table>
+                    <tr><td><strong>Name:</strong></td><td>{donor.get('name', 'Unknown')}</td></tr>
+                    <tr><td><strong>Blood Type:</strong></td><td><span style="background: #ff6b6b; color: white; padding: 5px 15px; border-radius: 5px;">{donor.get('blood', 'Unknown')}</span></td></tr>
+                    <tr><td><strong>Phone:</strong></td><td><a href="tel:{donor.get('phone', '')}" style="color: #667eea; text-decoration: none; font-weight: bold;">{donor.get('phone', '')}</a></td></tr>
+                    <tr><td><strong>Email:</strong></td><td><a href="mailto:{donor.get('email', '')}" style="color: #667eea;">{donor.get('email', '')}</a></td></tr>
+                    <tr><td><strong>Location:</strong></td><td>{donor.get('location', 'Unknown')}</td></tr>
                     {distance_text}
-                    <tr><td style="padding: 10px;"><strong>Donor Level:</strong></td><td style="padding: 10px;">{donor.get('donor_level', 'New Donor 🌟')}</td></tr>
-                    <tr><td style="padding: 10px;"><strong>Total Donations:</strong></td><td style="padding: 10px;">{donor.get('total_donations', 0)}</td></tr>
+                    <tr><td><strong>Donor Level:</strong></td><td>{donor.get('donor_level', 'New Donor 🌟')}</td></tr>
+                    <tr><td><strong>Total Donations:</strong></td><td>{donor.get('total_donations', 0)}</td></tr>
                 </table>
             </div>
             
-            <div style="background: #f8f9fa; padding: 20px; border-radius: 15px; margin: 20px 0;">
-                <h3 style="color: #333;">📋 REQUEST SUMMARY</h3>
-                <table style="width: 100%;">
+            <div class="details-box">
+                <h3 style="color: #333; margin-top: 0;">📋 REQUEST SUMMARY</h3>
+                <table>
                     <tr><td><strong>Request ID:</strong></td><td>{request.get('request_id', '')}</td></tr>
                     <tr><td><strong>Blood Type:</strong></td><td><span style="background: #ff6b6b; color: white; padding: 3px 10px; border-radius: 5px;">{request.get('blood', 'Unknown')}</span></td></tr>
                     <tr><td><strong>Units:</strong></td><td>{request.get('units_needed', 1)}</td></tr>
@@ -1135,8 +1406,8 @@ def send_patient_notification_email(patient_email, patient_name, donor, request,
                 </table>
             </div>
             
-            <div style="background: #fff3cd; padding: 20px; border-radius: 15px;">
-                <h4 style="color: #856404;">📝 NEXT STEPS</h4>
+            <div class="next-steps">
+                <h4 style="color: #856404; margin-top: 0;">📝 NEXT STEPS</h4>
                 <ol style="color: #856404; margin-bottom: 0;">
                     <li><strong>Contact the donor IMMEDIATELY</strong> using the phone number above</li>
                     <li>Schedule the donation time with the donor and hospital</li>
@@ -1146,8 +1417,8 @@ def send_patient_notification_email(patient_email, patient_name, donor, request,
             </div>
             
             <div style="text-align: center; margin: 30px 0;">
-                <a href="tel:{donor.get('phone', '')}" style="background: #667eea; color: white; padding: 15px 30px; text-decoration: none; border-radius: 50px; margin: 0 10px; display: inline-block;">📞 CALL DONOR NOW</a>
-                <a href="mailto:{donor.get('email', '')}" style="background: #764ba2; color: white; padding: 15px 30px; text-decoration: none; border-radius: 50px; margin: 0 10px; display: inline-block;">📧 EMAIL DONOR</a>
+                <a href="tel:{donor.get('phone', '')}" class="button call" style="background: #667eea; color: white; padding: 15px 30px; text-decoration: none; border-radius: 50px; margin: 10px; display: inline-block;">📞 CALL DONOR NOW</a>
+                <a href="mailto:{donor.get('email', '')}" class="button email" style="background: #764ba2; color: white; padding: 15px 30px; text-decoration: none; border-radius: 50px; margin: 10px; display: inline-block;">📧 EMAIL DONOR</a>
             </div>
             
             <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
@@ -1177,7 +1448,6 @@ def send_donor_confirmation_email(donor, patient_name, request, next_eligible, d
         if not donor or not request:
             return False
         
-        # Normalize and validate donor email
         donor_email = normalize_email(donor.get('email'))
         
         if not is_valid_email(donor_email):
@@ -1194,22 +1464,33 @@ def send_donor_confirmation_email(donor, patient_name, request, next_eligible, d
 <html>
 <head>
     <meta charset="UTF-8">
+    <style>
+        body {{ font-family: Arial, sans-serif; line-height: 1.6; margin: 0; padding: 0; }}
+        .container {{ max-width: 600px; margin: 20px auto; background: white; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }}
+        .header {{ background: linear-gradient(135deg, #ffd700 0%, #ffa500 100%); padding: 30px; text-align: center; color: white; }}
+        .content {{ padding: 30px; }}
+        .details-box {{ background: #f8f9fa; padding: 20px; border-radius: 15px; margin: 20px 0; border-left: 5px solid #ffd700; }}
+        .rewards-box {{ background: #e8f4fd; padding: 20px; border-radius: 10px; margin: 20px 0; }}
+        .info-box {{ background: #fff3cd; padding: 20px; border-radius: 10px; }}
+        table {{ width: 100%; }}
+        td {{ padding: 8px; }}
+    </style>
 </head>
-<body style="font-family: Arial, sans-serif; margin: 0; padding: 0; background: linear-gradient(135deg, #ffd70020, #ffa50020);">
-    <div style="max-width: 600px; margin: 20px auto; background: white; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.2);">
-        <div style="background: linear-gradient(135deg, #ffd700 0%, #ffa500 100%); padding: 30px; text-align: center;">
-            <h1 style="color: white; margin: 0; font-size: 36px;">🎉 THANK YOU HERO!</h1>
-            <p style="color: white; margin: 10px 0 0;">You've accepted a donation request</p>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 style="margin: 0; font-size: 36px;">🎉 THANK YOU HERO!</h1>
+            <p style="margin: 10px 0 0;">You've accepted a donation request</p>
         </div>
         
-        <div style="padding: 30px;">
-            <h2>Dear {donor.get('name', 'Donor')},</h2>
+        <div class="content">
+            <h2 style="margin-top: 0;">Dear {donor.get('name', 'Donor')},</h2>
             
             <p>Thank you for accepting the blood donation request! Your willingness to help is truly heroic.</p>
             
-            <div style="background: #f8f9fa; padding: 20px; border-radius: 15px; margin: 20px 0; border-left: 5px solid #ffd700;">
-                <h3 style="color: #ffa500;">🏥 DONATION DETAILS</h3>
-                <table style="width: 100%;">
+            <div class="details-box">
+                <h3 style="color: #ffa500; margin-top: 0;">🏥 DONATION DETAILS</h3>
+                <table>
                     <tr><td><strong>Patient:</strong></td><td>{patient_name}</td></tr>
                     <tr><td><strong>Hospital:</strong></td><td>{request.get('hospital', 'Unknown')}</td></tr>
                     <tr><td><strong>Location:</strong></td><td>{request.get('location', 'Unknown')}</td></tr>
@@ -1219,17 +1500,17 @@ def send_donor_confirmation_email(donor, patient_name, request, next_eligible, d
                 </table>
             </div>
             
-            <div style="background: #e8f4fd; padding: 20px; border-radius: 15px; margin: 20px 0;">
-                <h4 style="color: #0056b3;">🎁 REWARDS EARNED</h4>
+            <div class="rewards-box">
+                <h4 style="color: #0056b3; margin-top: 0;">🎁 REWARDS EARNED</h4>
                 <p><strong>Points:</strong> +{POINTS_PER_DONATION}</p>
                 <p><strong>Next Eligible Date:</strong> {next_eligible}</p>
             </div>
             
-            <div style="background: #fff3cd; padding: 20px; border-radius: 15px;">
-                <h4 style="color: #856404;">⏰ IMPORTANT INFORMATION</h4>
-                <ul style="color: #856404; margin-bottom: 0;">
+            <div class="info-box">
+                <h4 style="color: #856404; margin-top: 0;">⏰ IMPORTANT INFORMATION</h4>
+                <ul style="margin-bottom: 0;">
                     <li>You are now on cooldown for {COOLDOWN_MONTHS} months</li>
-                    <li>The patient will contact you shortly</li>
+                    <li>The patient will contact you shortly to schedule</li>
                     <li>Please bring a valid ID to the hospital</li>
                     <li>Stay hydrated and eat well before donating</li>
                 </ul>
@@ -1261,7 +1542,6 @@ def send_welcome_email(donor_email, donor_name, donor_details):
         if not donor_email:
             return False
         
-        # Normalize and validate donor email
         donor_email = normalize_email(donor_email)
         
         if not is_valid_email(donor_email):
@@ -1283,23 +1563,24 @@ def send_welcome_email(donor_email, donor_name, donor_details):
         </div>
         
         <div style="padding: 30px;">
-            <h2>Hello {donor_name},</h2>
+            <h2 style="color: #333;">Hello {donor_name},</h2>
             
-            <p>Thank you for registering as a blood donor!</p>
+            <p style="color: #666; font-size: 16px;">Thank you for registering as a blood donor. You're now part of our life-saving community!</p>
             
             <div style="background: #f8f9fa; padding: 20px; border-radius: 15px; margin: 20px 0;">
-                <h3>Your Donor Profile:</h3>
+                <h3 style="color: #333;">Your Donor Profile:</h3>
                 <p><strong>Donor ID:</strong> {donor_details.get('donor_id', '')}</p>
                 <p><strong>Blood Type:</strong> {donor_details.get('blood', 'Unknown')}</p>
                 <p><strong>Location:</strong> {donor_details.get('location', 'Unknown')}</p>
             </div>
             
             <div style="background: #e8f4fd; padding: 20px; border-radius: 15px;">
-                <h3>📍 Location-Based Matching</h3>
-                <p>The closest donors are always contacted first!</p>
+                <h3 style="color: #0056b3;">📍 Location-Based Matching</h3>
+                <p>The closest donors are always contacted first! You'll be notified when someone near you needs blood.</p>
             </div>
             
-            <p>Together, we can save lives!</p>
+            <p style="margin-top: 30px;">Together, we can save lives!</p>
+            <p>- BloodAI Team</p>
         </div>
     </div>
 </body>
@@ -1312,11 +1593,11 @@ def send_welcome_email(donor_email, donor_name, donor_details):
         return False
 
 # ============================================
-# AUTO NEXT DONOR FUNCTION
+# AUTO NEXT DONOR FUNCTION (Enhanced with queue system)
 # ============================================
 
 def check_and_contact_next_donor():
-    """Check pending requests and contact next donor after timeout"""
+    """Check pending requests and contact next donor in queue after timeout"""
     try:
         pending = execute_query(
             "SELECT * FROM requests WHERE status='Pending'",
@@ -1332,62 +1613,84 @@ def check_and_contact_next_donor():
             location = request.get('location')
             contacted = request.get('contacted') or ""
             last_contacted = request.get('last_contacted_time')
+            all_donors_json = request.get('all_donors', '')
             
-            if not last_contacted or not request_id or not blood_type or not location:
+            if not request_id or not blood_type or not location:
                 continue
             
-            try:
-                last_time = datetime.strptime(last_contacted, "%Y-%m-%d %H:%M:%S")
-                current_time = datetime.now()
-                
-                if current_time - last_time >= timedelta(minutes=WAIT_MINUTES):
-                    print(f"⏰ {WAIT_MINUTES} minutes passed for request {request_id}")
-                    
-                    next_donor, all_sorted = find_next_donor(blood_type, location, contacted)
-                    
-                    if next_donor:
-                        donor_rank = 1
-                        total_donors = 1
-                        donor_distance = None
+            # First contact - send to first donor immediately
+            if not last_contacted and all_donors_json:
+                try:
+                    all_donors = json.loads(all_donors_json)
+                    if all_donors:
+                        first_donor = all_donors[0]
                         
-                        if all_sorted:
-                            for i, d in enumerate(all_sorted):
-                                if d and d.get('donor') and d['donor'].get('id') == next_donor.get('id'):
-                                    donor_rank = i + 1
-                                    total_donors = len(all_sorted)
-                                    if d.get('distance') != float('inf'):
-                                        donor_distance = d.get('distance')
-                                    break
-                        
-                        new_contacted = contacted + str(next_donor.get('id')) + ","
-                        current_time_str = current_time.strftime("%Y-%m-%d %H:%M:%S")
+                        new_contacted = str(first_donor.get('id')) + ","
+                        current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         
                         execute_query(
                             """UPDATE requests 
-                               SET donor_id=?, contacted=?, last_contacted_time=?, closest_donor_distance=?
+                               SET donor_id=?, contacted=?, last_contacted_time=?, current_donor_index=1
                                WHERE id=?""",
-                            (next_donor.get('id'), new_contacted, current_time_str, donor_distance, request_id),
+                            (first_donor.get('id'), new_contacted, current_time_str, request_id),
                             commit=True
                         )
                         
-                        send_donor_request_email(next_donor, request, donor_rank, total_donors)
-                        print(f"✅ Contacted next donor {next_donor.get('id')}")
-                    else:
-                        print(f"❌ No more donors available")
-                        execute_query(
-                            "UPDATE requests SET status='No Donors Available' WHERE id=?",
-                            (request_id,),
-                            commit=True
-                        )
+                        # Send email to first donor
+                        distance = first_donor.get('distance_km', float('inf'))
+                        send_donor_request_email(first_donor, request, 1, len(all_donors), distance)
+                        print(f"✅ Contacted first donor: {first_donor.get('name')} at {distance} km")
+                except Exception as e:
+                    print(f"Error contacting first donor: {e}")
+            
+            # Check if WAIT_MINUTES have passed for subsequent contacts
+            elif last_contacted:
+                try:
+                    last_time = datetime.strptime(last_contacted, "%Y-%m-%d %H:%M:%S")
+                    current_time = datetime.now()
+                    
+                    if current_time - last_time >= timedelta(minutes=WAIT_MINUTES):
+                        print(f"⏰ {WAIT_MINUTES} minutes passed for request {request_id}")
                         
-                        add_notification(
-                            request.get('patient_email'),
-                            'no_donors',
-                            'No Donors Available',
-                            "No donors available for your request"
-                        )
-            except Exception as e:
-                print(f"Error processing request {request_id}: {e}")
+                        # Get next donor to contact
+                        next_donor, next_index = get_next_donor_to_contact(request)
+                        
+                        if next_donor and all_donors_json:
+                            all_donors = json.loads(all_donors_json)
+                            new_contacted = contacted + str(next_donor.get('id')) + ","
+                            current_time_str = current_time.strftime("%Y-%m-%d %H:%M:%S")
+                            
+                            execute_query(
+                                """UPDATE requests 
+                                   SET donor_id=?, contacted=?, last_contacted_time=?, current_donor_index=?
+                                   WHERE id=?""",
+                                (next_donor.get('id'), new_contacted, current_time_str, next_index + 1, request_id),
+                                commit=True
+                            )
+                            
+                            # Send email to next donor
+                            rank = next_index + 1
+                            distance = next_donor.get('distance_km', float('inf'))
+                            send_donor_request_email(next_donor, request, rank, len(all_donors), distance)
+                            print(f"✅ Contacted next donor (#{rank}): {next_donor.get('name')}")
+                        else:
+                            print(f"❌ No more donors available")
+                            execute_query(
+                                "UPDATE requests SET status='No Donors Available' WHERE id=?",
+                                (request_id,),
+                                commit=True
+                            )
+                            
+                            # Notify patient
+                            add_notification(
+                                request.get('patient_email'),
+                                'no_donors',
+                                'No Donors Available',
+                                "All eligible donors have been contacted. No one accepted.",
+                                priority='High'
+                            )
+                except Exception as e:
+                    print(f"Error processing request {request_id}: {e}")
     except Exception as e:
         print(f"Scheduler error: {e}")
 
@@ -1429,7 +1732,6 @@ def handle_donor_response():
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # Get request
                 request = execute_query(
                     "SELECT * FROM requests WHERE id=?",
                     (request_id,),
@@ -1440,7 +1742,6 @@ def handle_donor_response():
                     st.error("❌ Request not found")
                     return
                 
-                # Get donor
                 donor = execute_query(
                     "SELECT * FROM donors WHERE id=?",
                     (donor_id,),
@@ -1463,7 +1764,6 @@ def handle_donor_response():
                     st.error(f"❌ Invalid donor email: {donor_email}")
                     return
                 
-                # Check if request is still pending
                 if request.get('status') != 'Pending':
                     if request.get('status') == 'Accepted':
                         st.warning("⚠️ This request has already been accepted by another donor.")
@@ -1557,17 +1857,18 @@ def handle_donor_response():
                     patient_email,
                     'donor_found',
                     '✅ Donor Found!',
-                    f"{donor.get('name')} has accepted your blood request. Contact them at {donor.get('phone')}"
+                    f"{donor.get('name')} has accepted your blood request. Contact them at {donor.get('phone')}",
+                    priority='High'
                 )
                 
                 add_notification(
                     donor_email,
                     'accepted',
                     '🎉 Donation Confirmed',
-                    f"Thank you for accepting! You can donate again after {next_eligible}"
+                    f"Thank you for accepting! You can donate again after {next_eligible}",
+                    priority='High'
                 )
                 
-                # Clear query parameters
                 st.query_params.clear()
                 st.session_state.showing_response = False
                 
@@ -1575,12 +1876,10 @@ def handle_donor_response():
                 st.balloons()
                 st.snow()
                 
-                # Display email status
                 st.info("📧 Email Notifications:")
                 for recipient, status in email_status:
                     st.write(f"{recipient}: {status}")
                 
-                # Show donor stats
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     st.markdown(f"""
@@ -1611,10 +1910,8 @@ def handle_donor_response():
                     """, unsafe_allow_html=True)
                 
                 if donor_distance:
-                    distance_display = f"{donor_distance:.1f}"
-                    st.info(f"📍 Distance to hospital: {distance_display} km")
+                    st.info(f"📍 Distance to hospital: {donor_distance:.1f} km")
                 
-                # Show donation summary
                 st.markdown(f"""
                 <div style='background: white; padding: 2rem; border-radius: 20px; margin-top: 2rem; box-shadow: 0 10px 30px rgba(0,0,0,0.1);'>
                     <h2>📋 Donation Summary</h2>
@@ -1628,7 +1925,6 @@ def handle_donor_response():
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # Show donor contact information
                 st.markdown(f"""
                 <div style='background: #e8f4fd; padding: 2rem; border-radius: 20px; margin-top: 2rem;'>
                     <h3>📞 Your Contact Information (Sent to Patient)</h3>
@@ -1659,7 +1955,7 @@ def handle_donor_response():
                 st.markdown("""
                 <div style='text-align: center; padding: 3rem; background: linear-gradient(135deg, #ff6b6b, #ee5253); border-radius: 20px; margin: 2rem 0;'>
                     <h1 style='color: white; font-size: 3rem;'>🕊️ Request Rejected</h1>
-                    <p style='color: white;'>The next closest donor will be contacted.</p>
+                    <p style='color: white;'>Thank you for considering. The next donor will be contacted shortly.</p>
                 </div>
                 """, unsafe_allow_html=True)
                 
@@ -1679,7 +1975,14 @@ def handle_donor_response():
                             commit=True
                         )
                         
-                        st.info("✅ Your response has been recorded. The system will now contact the next closest donor.")
+                        donor = execute_query(
+                            "SELECT name FROM donors WHERE id=?",
+                            (donor_id,),
+                            fetch_one=True
+                        )
+                        
+                        if donor:
+                            st.info(f"✅ Your response has been recorded. The next donor will be contacted.")
                 
                 st.query_params.clear()
                 st.session_state.showing_response = False
@@ -1741,9 +2044,9 @@ def show_donor_search():
         elif i < 60:
             status_text.text("📍 Calculating distances...")
         elif i < 90:
-            status_text.text("🤖 Sorting by proximity...")
+            status_text.text("🤖 Sorting donors by proximity...")
         else:
-            status_text.text("✅ Found closest match!")
+            status_text.text("✅ Found closest donors!")
     
     time.sleep(0.5)
     progress_bar.empty()
@@ -1806,11 +2109,106 @@ class BloodInventoryManager:
                 """, unsafe_allow_html=True)
 
 # ============================================
+# HOSPITAL MANAGEMENT
+# ============================================
+
+class HospitalManager:
+    def register_hospital(self, hospital_data):
+        """Register a new hospital"""
+        try:
+            hospital_id = generate_id('HOSP')
+            coords = get_coords(f"{hospital_data.get('address', '')}, {hospital_data.get('city', '')}")
+            lat, lon = coords if coords else (None, None)
+            
+            execute_query(
+                """INSERT INTO hospitals 
+                   (hospital_id, name, registration_number, address, city, state, 
+                    phone, email, emergency_contact, license_number, registration_date,
+                    latitude, longitude, blood_bank_capacity, accreditation)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (hospital_id, hospital_data.get('name'), hospital_data.get('reg_number'),
+                 hospital_data.get('address'), hospital_data.get('city'), hospital_data.get('state'),
+                 hospital_data.get('phone'), hospital_data.get('email'), hospital_data.get('emergency_contact'),
+                 hospital_data.get('license'), datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                 lat, lon, hospital_data.get('capacity'), hospital_data.get('accreditation', 'Pending')),
+                commit=True
+            )
+            return True, hospital_id
+        except Exception as e:
+            print(f"Hospital registration error: {e}")
+            return False, str(e)
+    
+    def get_nearby_hospitals(self, location, radius_km=20):
+        """Get hospitals near a location"""
+        coords = get_coords(location)
+        if not coords:
+            return []
+        
+        hospitals = execute_query(
+            "SELECT * FROM hospitals WHERE verified=1",
+            fetch_all=True
+        ) or []
+        
+        nearby = []
+        for hospital in hospitals:
+            if hospital and hospital.get('latitude') and hospital.get('longitude'):
+                hospital_coords = (hospital['latitude'], hospital['longitude'])
+                distance = geodesic(coords, hospital_coords).km
+                if distance <= radius_km:
+                    hospital['distance'] = round(distance, 2)
+                    nearby.append(hospital)
+        
+        return sorted(nearby, key=lambda x: x.get('distance', float('inf')))
+
+# ============================================
+# DONATION EVENTS MANAGEMENT
+# ============================================
+
+class DonationEventManager:
+    def get_nearby_events(self, location, radius_km=50):
+        """Get events near a location"""
+        coords = get_coords(location)
+        if not coords:
+            return []
+        
+        events = execute_query(
+            "SELECT * FROM donation_events WHERE status='Upcoming'",
+            fetch_all=True
+        ) or []
+        
+        nearby = []
+        for event in events:
+            if event and event.get('latitude') and event.get('longitude'):
+                event_coords = (event['latitude'], event['longitude'])
+                distance = geodesic(coords, event_coords).km
+                if distance <= radius_km:
+                    event['distance'] = round(distance, 2)
+                    nearby.append(event)
+        
+        return sorted(nearby, key=lambda x: x.get('distance', float('inf')))
+    
+    def register_for_event(self, event_id, donor_id):
+        """Register donor for event"""
+        try:
+            execute_query(
+                """INSERT INTO event_registrations 
+                   (event_id, donor_id, registration_date, attended)
+                   VALUES (?, ?, ?, ?)""",
+                (event_id, donor_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 0),
+                commit=True
+            )
+            return True
+        except Exception as e:
+            print(f"Event registration error: {e}")
+            return False
+
+# ============================================
 # QR CODE GENERATOR
 # ============================================
 
 class QRCodeManager:
     def generate_donor_qr(self, donor_id, donor_data):
+        """Generate QR code for donor"""
         try:
             qr_data = {
                 'donor_id': donor_id,
@@ -1818,17 +2216,348 @@ class QRCodeManager:
                 'blood_type': donor_data.get('blood', ''),
                 'donor_level': donor_data.get('donor_level', 'New Donor 🌟'),
                 'total_donations': donor_data.get('total_donations', 0),
+                'medical_id': donor_data.get('medical_id', ''),
+                'emergency_contact': donor_data.get('emergency_contact', ''),
                 'verified': donor_data.get('is_verified', 0)
             }
-            qr = qrcode.QRCode(version=1, box_size=10, border=5)
-            qr.add_data(json.dumps(qr_data))
+            
+            qr_string = json.dumps(qr_data)
+            
+            qr = qrcode.QRCode(
+                version=1,
+                box_size=10,
+                border=5
+            )
+            qr.add_data(qr_string)
             qr.make(fit=True)
+            
             img = qr.make_image(fill_color="black", back_color="white")
+            
             buffered = BytesIO()
             img.save(buffered, format="PNG")
-            return f"data:image/png;base64,{base64.b64encode(buffered.getvalue()).decode()}"
-        except:
+            img_str = base64.b64encode(buffered.getvalue()).decode()
+            
+            return f"data:image/png;base64,{img_str}"
+        except Exception as e:
+            print(f"QR generation error: {e}")
             return None
+
+# ============================================
+# REWARDS MANAGER
+# ============================================
+
+class RewardsManager:
+    def get_available_rewards(self, category=None):
+        """Get available rewards"""
+        try:
+            query = "SELECT * FROM rewards WHERE available=1 AND stock>0"
+            params = []
+            
+            if category and category != 'All':
+                query += " AND category=?"
+                params.append(category)
+            
+            query += " ORDER BY points_required ASC"
+            
+            return execute_query(query, params, fetch_all=True) or []
+        except Exception as e:
+            print(f"Error getting rewards: {e}")
+            return []
+    
+    def get_donor_points_summary(self, donor_id):
+        """Get donor points summary"""
+        try:
+            if not donor_id:
+                return None
+                
+            donor = execute_query(
+                "SELECT points, total_points_earned, donor_level FROM donors WHERE id=?",
+                (donor_id,),
+                fetch_one=True
+            )
+            
+            if not donor:
+                return None
+            
+            redemptions = execute_query(
+                """SELECT r.*, rew.item_name 
+                   FROM redemptions r
+                   JOIN rewards rew ON r.reward_id = rew.id
+                   WHERE r.donor_id=?
+                   ORDER BY r.redemption_date DESC""",
+                (donor_id,),
+                fetch_all=True
+            ) or []
+            
+            return {
+                'current_points': donor.get('points', 0),
+                'total_earned': donor.get('total_points_earned', 0),
+                'level': donor.get('donor_level', 'New Donor 🌟'),
+                'redemptions': redemptions
+            }
+        except Exception as e:
+            print(f"Error getting donor points: {e}")
+            return None
+
+# ============================================
+# CHAT MANAGER
+# ============================================
+
+class ChatManager:
+    def send_message(self, sender_id, receiver_id, message):
+        """Send chat message"""
+        try:
+            if not sender_id or not receiver_id:
+                return False, "Invalid user IDs"
+                
+            message_id = generate_id('CHAT')
+            conversation_id = self.get_conversation_id(sender_id, receiver_id)
+            
+            sender = execute_query(
+                "SELECT name, email FROM donors WHERE id=?",
+                (sender_id,),
+                fetch_one=True
+            )
+            
+            if not sender:
+                return False, "Sender not found"
+            
+            execute_query(
+                """INSERT INTO chat_messages 
+                   (message_id, sender_id, receiver_id, message, timestamp, conversation_id)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (message_id, sender_id, receiver_id, message,
+                 datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                 conversation_id),
+                commit=True
+            )
+            
+            receiver = execute_query(
+                "SELECT email FROM donors WHERE id=?",
+                (receiver_id,),
+                fetch_one=True
+            )
+            
+            if receiver:
+                add_notification(
+                    receiver.get('email'),
+                    'chat',
+                    f"New message from {sender.get('name', 'Unknown')}",
+                    message[:50] + "..." if len(message) > 50 else message
+                )
+            
+            return True, message_id
+        except Exception as e:
+            print(f"Chat send error: {e}")
+            return False, str(e)
+    
+    def get_conversation_id(self, user1_id, user2_id):
+        """Get unique conversation ID"""
+        ids = sorted([str(user1_id), str(user2_id)])
+        return f"conv_{ids[0]}_{ids[1]}"
+    
+    def get_conversation(self, user1_id, user2_id, limit=50):
+        """Get conversation between two users"""
+        try:
+            if not user1_id or not user2_id:
+                return []
+                
+            conversation_id = self.get_conversation_id(user1_id, user2_id)
+            
+            messages = execute_query(
+                """SELECT * FROM chat_messages 
+                   WHERE conversation_id=?
+                   ORDER BY timestamp ASC
+                   LIMIT ?""",
+                (conversation_id, limit),
+                fetch_all=True
+            ) or []
+            
+            execute_query(
+                "UPDATE chat_messages SET read=1 WHERE conversation_id=? AND receiver_id=? AND read=0",
+                (conversation_id, user1_id),
+                commit=True
+            )
+            
+            return messages
+        except Exception as e:
+            print(f"Error getting conversation: {e}")
+            return []
+    
+    def get_unread_count(self, user_id):
+        """Get unread message count"""
+        try:
+            if not user_id:
+                return 0
+                
+            result = execute_query(
+                "SELECT COUNT(*) as count FROM chat_messages WHERE receiver_id=? AND read=0",
+                (user_id,),
+                fetch_one=True
+            )
+            return result['count'] if result else 0
+        except Exception as e:
+            print(f"Error getting unread count: {e}")
+            return 0
+    
+    def display_chat_interface(self, current_user_id, other_user_id, other_user_name):
+        """Display chat interface"""
+        try:
+            if not current_user_id or not other_user_id:
+                st.warning("Invalid chat users")
+                return
+                
+            st.subheader(f"💬 Chat with {other_user_name}")
+            
+            messages = self.get_conversation(current_user_id, other_user_id)
+            
+            chat_container = st.container()
+            with chat_container:
+                for msg in messages:
+                    if not msg:
+                        continue
+                    if msg.get('sender_id') == current_user_id:
+                        st.markdown(f"""
+                        <div class='chat-bubble sent'>
+                            <strong>You:</strong><br>
+                            {msg.get('message', '')}<br>
+                            <small>{msg.get('timestamp', '')}</small>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.markdown(f"""
+                        <div class='chat-bubble received'>
+                            <strong>{other_user_name}:</strong><br>
+                            {msg.get('message', '')}<br>
+                            <small>{msg.get('timestamp', '')}</small>
+                        </div>
+                        """, unsafe_allow_html=True)
+            
+            st.markdown("---")
+            col1, col2 = st.columns([5, 1])
+            
+            with col1:
+                new_message = st.text_input("Type your message...", key="chat_input")
+            
+            with col2:
+                if st.button("Send", use_container_width=True):
+                    if new_message:
+                        success, _ = self.send_message(current_user_id, other_user_id, new_message)
+                        if success:
+                            st.rerun()
+        except Exception as e:
+            st.error(f"Chat error: {e}")
+
+# ============================================
+# DONOR IMPACT VISUALIZER
+# ============================================
+
+class DonorImpactVisualizer:
+    def calculate_donor_impact(self, donor_id):
+        """Calculate donor's lifetime impact"""
+        try:
+            if not donor_id:
+                return {
+                    'donations': 0,
+                    'units': 0,
+                    'lives_saved': 0,
+                    'events': 0,
+                    'total_impact': 0,
+                    'total_distance': 0
+                }
+                
+            donations = execute_query(
+                """SELECT COUNT(*) as count, SUM(units) as total_units, SUM(donor_distance_km) as total_distance
+                   FROM donation_history WHERE donor_id=?""",
+                (donor_id,),
+                fetch_one=True
+            )
+            
+            if not donations:
+                donations = {'count': 0, 'total_units': 0, 'total_distance': 0}
+            
+            lives_saved = (donations.get('total_units') or 0) * 3
+            
+            events_attended = execute_query(
+                "SELECT COUNT(*) as count FROM event_registrations WHERE donor_id=? AND attended=1",
+                (donor_id,),
+                fetch_one=True
+            ) or {'count': 0}
+            
+            return {
+                'donations': donations.get('count', 0),
+                'units': donations.get('total_units', 0),
+                'lives_saved': lives_saved,
+                'events': events_attended.get('count', 0),
+                'total_impact': lives_saved + (events_attended.get('count', 0) * 10),
+                'total_distance': donations.get('total_distance', 0) or 0
+            }
+        except Exception as e:
+            print(f"Error calculating impact: {e}")
+            return {
+                'donations': 0,
+                'units': 0,
+                'lives_saved': 0,
+                'events': 0,
+                'total_impact': 0,
+                'total_distance': 0
+            }
+    
+    def create_impact_dashboard(self, donor_id, donor_name):
+        """Create visual impact dashboard"""
+        try:
+            if not donor_id or not donor_name:
+                st.warning("Invalid donor information")
+                return
+                
+            impact = self.calculate_donor_impact(donor_id)
+            
+            st.subheader(f"🌟 {donor_name}'s Impact Dashboard")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric("Total Donations", impact.get('donations', 0))
+            with col2:
+                st.metric("Units Donated", impact.get('units', 0))
+            with col3:
+                st.metric("Lives Saved", impact.get('lives_saved', 0))
+            with col4:
+                st.metric("Total Distance", f"{impact.get('total_distance', 0):.0f} km")
+            
+            fig = make_subplots(
+                rows=1, cols=2,
+                subplot_titles=("Donation History", "Impact Breakdown")
+            )
+            
+            months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun']
+            donations_data = [random.randint(0, max(2, impact.get('donations', 0))) for _ in range(6)]
+            
+            fig.add_trace(
+                go.Bar(x=months, y=donations_data, name="Donations", marker_color='#ff6b6b'),
+                row=1, col=1
+            )
+            
+            categories = ['Lives Saved', 'Events', 'Distance (km)']
+            values = [impact.get('lives_saved', 0), impact.get('events', 0), impact.get('total_distance', 0)]
+            
+            fig.add_trace(
+                go.Bar(x=categories, y=values, marker_color=['#43e97b', '#feca57', '#667eea']),
+                row=1, col=2
+            )
+            
+            fig.update_layout(height=400, showlegend=False)
+            st.plotly_chart(fig, use_container_width=True)
+            
+            st.markdown(f"""
+            <div style='background: linear-gradient(135deg, #667eea20, #764ba220); padding: 2rem; border-radius: 15px; text-align: center;'>
+                <h2>🎉 {donor_name}, you've saved {impact.get('lives_saved', 0)} lives!</h2>
+                <p>Your {impact.get('donations', 0)} donations have made an incredible impact.</p>
+                <p>📍 Total distance traveled: {impact.get('total_distance', 0):.0f} km</p>
+            </div>
+            """, unsafe_allow_html=True)
+        except Exception as e:
+            st.error(f"Error displaying impact dashboard: {e}")
 
 # ============================================
 # SIDEBAR SETUP
@@ -1836,18 +2565,27 @@ class QRCodeManager:
 
 st.sidebar.markdown("""
 <div style='text-align: center; padding: 1rem;'>
-    <h1 style='color: #ff6b6b; font-size: 2.5rem;'>🩸 BloodAI</h1>
-    <p>Complete Blood Donation System</p>
+    <h1 style='color: #ff6b6b; font-size: 2.5rem; animation: bounce 2s infinite;'>🩸 BloodAI</h1>
+    <p style='color: #666;'>Complete Blood Donation System</p>
 </div>
 """, unsafe_allow_html=True)
 
+# Quick stats
 st.sidebar.markdown("### 📊 Quick Stats")
-selected_blood = st.sidebar.selectbox("Blood Type", BLOOD_TYPES, key="sidebar_blood")
+selected_blood = st.sidebar.selectbox(
+    "Blood Type",
+    BLOOD_TYPES,
+    key="sidebar_blood"
+)
 
 eligible_donors = get_eligible_donors(selected_blood)
 eligible_count = len(eligible_donors)
 
-total_result = execute_query("SELECT COUNT(*) as count FROM donors WHERE blood=?", (selected_blood,), fetch_one=True)
+total_result = execute_query(
+    "SELECT COUNT(*) as count FROM donors WHERE blood=?",
+    (selected_blood,),
+    fetch_one=True
+)
 total = total_result['count'] if total_result else 0
 
 st.sidebar.markdown(f"""
@@ -1855,13 +2593,21 @@ st.sidebar.markdown(f"""
     <p><strong>🩸 {selected_blood}</strong></p>
     <p>✅ Eligible: {eligible_count}</p>
     <p>📊 Total: {total}</p>
+    <p>⏱️ Cooldown: {COOLDOWN_MONTHS} months</p>
     <p>📍 Sorted by: <strong style='color: #43e97b;'>NEAREST FIRST</strong></p>
+    <p>📧 All eligible donors notified in order</p>
 </div>
 """, unsafe_allow_html=True)
 
+# Inventory quick view
 inventory_manager = BloodInventoryManager()
+alerts, _ = inventory_manager.check_stock_alerts()
+if alerts:
+    st.sidebar.warning(f"⚠️ {len(alerts)} stock alerts")
+
 st.sidebar.markdown("---")
 
+# Navigation menu
 menu_options = [
     "🏠 Home",
     "📝 Donor Register",
@@ -1870,19 +2616,30 @@ menu_options = [
     "🏆 Donor Leaderboard",
     "🔔 Notifications",
     "👤 Donor Dashboard",
+    "🏥 Hospitals",
     "📦 Blood Inventory",
+    "🎪 Donation Events",
+    "🎁 Rewards Store",
+    "💬 Chat",
+    "📊 Impact Dashboard",
     "👑 Admin",
     "📧 Email Log"
 ]
 
+# Only show chat and impact dashboard if donor is logged in
+if st.session_state.logged_in_donor is None:
+    menu_options = [m for m in menu_options if m not in ["💬 Chat", "📊 Impact Dashboard"]]
+
 menu = st.sidebar.radio("Navigation", menu_options)
 
+# System status
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🔄 System Status")
-st.sidebar.info(f"⏱️ Auto-donor: Every 30s")
-st.sidebar.info(f"⏳ Response: {WAIT_MINUTES} min")
+st.sidebar.info(f"⏱️ Auto-rotation: Every {WAIT_MINUTES} minutes")
+st.sidebar.info(f"⏳ Response: {WAIT_MINUTES} min per donor")
 st.sidebar.info(f"🛡️ Cooldown: {COOLDOWN_MONTHS} months")
-st.sidebar.markdown("📍 **Closest donors contacted first - UNLIMITED DISTANCE**")
+st.sidebar.markdown("📍 **Closest donors contacted first**")
+st.sidebar.markdown("📧 **All eligible donors notified**")
 
 # ============================================
 # MAIN CONTENT
@@ -1898,17 +2655,20 @@ if not st.session_state.get('showing_response', False):
         st.markdown("""
         <div class='main-header'>
             <h1 style='font-size: 3rem;'>🩸 BloodAI Complete System</h1>
-            <p style='font-size: 1.5rem;'>Location-Based Donor Matching</p>
+            <p style='font-size: 1.5rem;'>All Donors Notified • Closest First • 2-Minute Rotation</p>
         </div>
         """, unsafe_allow_html=True)
         
-        pending_result = execute_query("SELECT COUNT(*) as count FROM requests WHERE status='Pending'", fetch_one=True)
+        pending_result = execute_query(
+            "SELECT COUNT(*) as count FROM requests WHERE status='Pending'",
+            fetch_one=True
+        )
         pending_count = pending_result['count'] if pending_result else 0
         
         if pending_count > 0:
             st.markdown(f"""
             <div class='emergency-banner emergency-glow'>
-                🚨 {pending_count} patient(s) waiting for blood!
+                🚨 {pending_count} patient(s) waiting for blood! Contacting all donors in order of distance...
             </div>
             """, unsafe_allow_html=True)
         
@@ -1935,8 +2695,37 @@ if not st.session_state.get('showing_response', False):
             st.markdown(f"<div class='metric-card'><div class='metric-value'>{lives_saved}</div><div>Lives Saved</div></div>", unsafe_allow_html=True)
         
         st.markdown("---")
-        st.subheader("📦 Current Blood Inventory")
+        st.subheader("📦 Current Blood Inventory (Eligible Donors)")
         inventory_manager.display_inventory_dashboard()
+        
+        st.markdown("---")
+        st.subheader("🌟 System Features")
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("""
+            <div class='feature-card'>
+                <div class='feature-icon'>📍</div>
+                <div class='feature-title'>Location-Based Matching</div>
+                <div class='feature-description'>All donors sorted by distance - closest first</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with col2:
+            st.markdown("""
+            <div class='feature-card'>
+                <div class='feature-icon'>📧</div>
+                <div class='feature-title'>All Donors Notified</div>
+                <div class='feature-description'>Every eligible donor gets an email in order</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with col3:
+            st.markdown(f"""
+            <div class='feature-card'>
+                <div class='feature-icon'>🔄</div>
+                <div class='feature-title'>Auto Rotation</div>
+                <div class='feature-description'>Next donor contacted after {WAIT_MINUTES} minutes</div>
+            </div>
+            """, unsafe_allow_html=True)
 
     # ============================================
     # DONOR REGISTER PAGE
@@ -1944,23 +2733,28 @@ if not st.session_state.get('showing_response', False):
 
     elif menu == "📝 Donor Register":
         st.title("📝 Donor Registration")
-        st.info("📍 Your location will be used to find nearby requests")
+        st.info("📍 Your location helps us prioritize you based on distance to patients")
         
         with st.form("donor_form"):
             col1, col2 = st.columns(2)
+            
             with col1:
                 name = st.text_input("Full Name*")
                 email = st.text_input("Email*")
                 phone = st.text_input("Phone Number*")
                 age = st.number_input("Age*", min_value=18, max_value=65, value=25)
                 gender = st.selectbox("Gender", ["Male", "Female", "Other"])
+            
             with col2:
                 blood = st.selectbox("Blood Type*", BLOOD_TYPES)
-                location = st.text_input("Full Address/Location*")
+                location = st.text_input("Full Address/Location*", 
+                                        help="Enter your complete address for accurate distance calculation")
                 weight = st.number_input("Weight (kg)*", min_value=45, value=70)
                 emergency_contact = st.text_input("Emergency Contact")
+                medical_id = st.text_input("Medical ID (Optional)")
             
-            health_conditions = st.text_area("Any health conditions?")
+            health_conditions = st.text_area("Any health conditions? (Leave blank if none)")
+            
             password = st.text_input("Password*", type="password")
             confirm = st.text_input("Confirm Password*", type="password")
             
@@ -1976,7 +2770,6 @@ if not st.session_state.get('showing_response', False):
                 elif weight < 45:
                     st.error("Minimum weight 45 kg")
                 else:
-                    # Normalize and validate email
                     email = normalize_email(email)
                     if not is_valid_email(email):
                         st.error("❌ Invalid email format")
@@ -1984,33 +2777,51 @@ if not st.session_state.get('showing_response', False):
                         try:
                             donor_id = generate_id('DNR')
                             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            
                             coords = get_coords(location)
                             lat, lon = coords if coords else (None, None)
                             
+                            if coords:
+                                location_note = "✅ Location verified - You'll be prioritized in donor queue"
+                            else:
+                                location_note = "⚠️ Could not verify location. You may not be prioritized correctly."
+                            
                             execute_query(
                                 """INSERT INTO donors 
-                                   (donor_id, name, email, phone, blood, location, latitude, longitude, password, 
-                                    registration_date, weight, age, gender, emergency_contact, health_conditions,
+                                   (donor_id, name, email, phone, blood, location, latitude, longitude, password, status, 
+                                    registration_date, weight, age, gender, emergency_contact, medical_id, health_conditions,
                                     points, donor_level, is_verified, last_location_update)
-                                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                                 (donor_id, name, email, phone, blood, location, lat, lon,
-                                 hash_password(password), current_time, weight, age, gender,
-                                 emergency_contact, health_conditions, 0, "New Donor 🌟",
-                                 1 if coords else 0, current_time),
+                                 hash_password(password), "Available", current_time,
+                                 weight, age, gender, emergency_contact, medical_id, health_conditions,
+                                 0, "New Donor 🌟", 1 if coords else 0, current_time),
                                 commit=True
                             )
                             
-                            donor_details = {'donor_id': donor_id, 'blood': blood, 'location': location}
+                            donor_details = {
+                                'donor_id': donor_id,
+                                'blood': blood,
+                                'location': location
+                            }
                             send_welcome_email(email, name, donor_details)
                             
-                            st.success("✅ Registration successful!")
+                            st.success(f"✅ Registration successful! {location_note}")
                             
                             if coords:
                                 qr_manager = QRCodeManager()
-                                donor_data = {'name': name, 'blood': blood, 'is_verified': 1}
+                                donor_data = {
+                                    'name': name,
+                                    'blood': blood,
+                                    'donor_level': 'New Donor 🌟',
+                                    'total_donations': 0,
+                                    'medical_id': medical_id,
+                                    'emergency_contact': emergency_contact,
+                                    'is_verified': 1
+                                }
                                 qr_code = qr_manager.generate_donor_qr(donor_id, donor_data)
                                 if qr_code:
-                                    st.image(qr_code, caption="Your Donor QR Code", width=200)
+                                    st.image(qr_code, caption="Your Donor QR Code - Save this!", width=200)
                             
                             st.balloons()
                         except sqlite3.IntegrityError:
@@ -2022,105 +2833,134 @@ if not st.session_state.get('showing_response', False):
 
     elif menu == "🆘 Patient Request":
         st.title("🆘 Emergency Blood Request")
-        st.info(f"⏱️ Donors have {WAIT_MINUTES} minutes to respond. Closest donors contacted first!")
+        
+        # Get total eligible donors for info
+        total_eligible = len(get_eligible_donors(BLOOD_TYPES[0]))
+        st.info(f"⏱️ All eligible donors will be contacted in order of distance. Each donor has {WAIT_MINUTES} minutes to respond.")
         
         with st.form("request_form"):
             col1, col2 = st.columns(2)
+            
             with col1:
                 patient = st.text_input("Patient Name*")
                 email = st.text_input("Your Email*")
                 blood = st.selectbox("Blood Type Needed*", BLOOD_TYPES)
-            with col2:
-                location = st.text_input("Hospital Location*")
-                hospital = st.text_input("Hospital Name*")
-                hospital_contact = st.text_input("Hospital Contact")
+                patient_age = st.number_input("Patient Age", min_value=0, max_value=120, value=30)
             
+            with col2:
+                location = st.text_input("Hospital Location*", 
+                                        help="Enter complete hospital address for accurate distance calculation")
+                hospital = st.text_input("Hospital Name*")
+                doctor = st.text_input("Doctor's Name")
+                hospital_contact = st.text_input("Hospital Contact Email/Phone")
+            
+            urgency = st.select_slider("Urgency", options=["Normal", "High", "Critical"], value="High")
             units = st.number_input("Units Needed", min_value=1, max_value=10, value=1)
+            reason = st.text_area("Reason for transfusion (Optional)")
+            
             submitted = st.form_submit_button("🚨 Request Blood")
             
             if submitted:
                 if not all([patient, email, blood, location, hospital]):
                     st.error("Please fill all required fields")
                 else:
-                    # Normalize and validate email
                     email = normalize_email(email)
                     if not is_valid_email(email):
                         st.error("❌ Invalid email format")
                     else:
+                        # Get coordinates
                         coords = get_coords(location)
                         lat, lon = coords if coords else (None, None)
                         
-                        request_id = generate_id('REQ')
-                        current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        if not coords:
+                            st.warning("⚠️ Could not verify hospital location. Distance calculations may be less accurate.")
                         
-                        execute_query(
-                            """INSERT INTO requests 
-                               (request_id, patient, patient_email, blood, location, latitude, longitude, 
-                                hospital, hospital_contact, status, time, units_needed)
-                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                            (request_id, patient, email, blood, location, lat, lon,
-                             hospital, hospital_contact, "Pending", current_time_str, units),
-                            commit=True
-                        )
-                        
-                        with st.spinner("🔍 Finding closest donors..."):
+                        # Get ALL eligible donors sorted by distance
+                        with st.spinner("🔍 Finding all eligible donors and sorting by distance..."):
                             show_donor_search()
-                            first_donor, all_sorted_donors = find_next_donor(blood, location, "")
+                            all_donors = get_all_donors_sorted_by_distance(blood, location)
                         
-                        if first_donor:
-                            donor_rank = 1
-                            total_donors = 1
-                            donor_distance = None
-                            
-                            if all_sorted_donors:
-                                for i, d in enumerate(all_sorted_donors):
-                                    if d and d.get('donor') and d['donor'].get('id') == first_donor.get('id'):
-                                        donor_rank = i + 1
-                                        total_donors = len(all_sorted_donors)
-                                        if d.get('distance') != float('inf'):
-                                            donor_distance = d.get('distance')
-                                        break
+                        if not all_donors:
+                            st.warning("No eligible donors available at the moment.")
+                            request_id = generate_id('REQ')
+                            current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                             
                             execute_query(
-                                """UPDATE requests 
-                                   SET donor_id=?, contacted=?, last_contacted_time=?, closest_donor_distance=?
-                                   WHERE request_id=?""",
-                                (first_donor.get('id'), str(first_donor.get('id')) + ",", current_time_str, donor_distance, request_id),
+                                """INSERT INTO requests 
+                                   (request_id, patient, patient_email, blood, location, latitude, longitude, hospital, 
+                                    doctor_name, hospital_contact, status, time, urgency_level, units_needed,
+                                    patient_age, reason, total_donors_count)
+                                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                (request_id, patient, email, blood, location, lat, lon, hospital,
+                                 doctor, hospital_contact, "No Donors Available", current_time_str, urgency, units,
+                                 patient_age, reason, 0),
+                                commit=True
+                            )
+                        else:
+                            request_id = generate_id('REQ')
+                            current_time = datetime.now()
+                            current_time_str = current_time.strftime("%Y-%m-%d %H:%M:%S")
+                            
+                            # Store all donors as JSON
+                            donors_json = json.dumps(all_donors)
+                            
+                            execute_query(
+                                """INSERT INTO requests 
+                                   (request_id, patient, patient_email, blood, location, latitude, longitude, hospital, 
+                                    doctor_name, hospital_contact, status, time, urgency_level, units_needed,
+                                    patient_age, reason, all_donors, total_donors_count)
+                                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                (request_id, patient, email, blood, location, lat, lon, hospital,
+                                 doctor, hospital_contact, "Pending", current_time_str, urgency, units,
+                                 patient_age, reason, donors_json, len(all_donors)),
                                 commit=True
                             )
                             
-                            request = execute_query("SELECT * FROM requests WHERE request_id=?", (request_id,), fetch_one=True)
+                            st.success(f"✅ Request submitted! {len(all_donors)} donors will be contacted in order.")
                             
-                            if send_donor_request_email(first_donor, request, donor_rank, total_donors):
-                                distance_display = f"{donor_distance:.1f}" if donor_distance else "Unknown"
-                                st.success(f"✅ Closest donor contacted! Email sent to {first_donor.get('email')}")
+                            # Show donor queue information
+                            first_distance = all_donors[0].get('distance_km', 'Unknown')
+                            if first_distance == float('inf'):
+                                first_distance_str = "Unknown location"
+                            else:
+                                first_distance_str = f"{first_distance} km"
+                            
+                            last_distance = all_donors[-1].get('distance_km', 'Unknown')
+                            if last_distance == float('inf'):
+                                last_distance_str = "Unknown location"
+                            else:
+                                last_distance_str = f"{last_distance} km"
+                            
+                            st.markdown(f"""
+                            <div class='location-priority'>
+                                <h3 style='color: #43e97b;'>📍 Donor Queue Information</h3>
+                                <p><strong>Total Eligible Donors:</strong> {len(all_donors)}</p>
+                                <p><strong>Closest Donor Distance:</strong> {first_distance_str}</p>
+                                <p><strong>Farthest Donor Distance:</strong> {last_distance_str}</p>
+                                <p><strong>Time between notifications:</strong> {WAIT_MINUTES} minutes</p>
+                                <p><strong>Estimated total time:</strong> {len(all_donors) * WAIT_MINUTES} minutes if no one accepts</p>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            # Show top donors
+                            with st.expander(f"View Donor Queue (Top {min(20, len(all_donors))} of {len(all_donors)})"):
+                                for i, donor in enumerate(all_donors[:20]):
+                                    distance = donor.get('distance_km', 'Unknown')
+                                    if distance == float('inf'):
+                                        distance_str = "Unknown location"
+                                    else:
+                                        distance_str = f"{distance} km"
+                                    
+                                    badge = "🔴 FIRST" if i == 0 else f"#{i+1}"
+                                    st.markdown(f"""
+                                    <div class='donor-card'>
+                                        <span class='priority-badge'>{badge}</span>
+                                        <strong>{donor.get('name', 'Unknown')}</strong> - {donor.get('blood', 'Unknown')} - {distance_str}
+                                    </div>
+                                    """, unsafe_allow_html=True)
                                 
-                                st.markdown(f"""
-                                <div class='location-priority'>
-                                    <h3 style='color: #43e97b;'>📍 Location Priority</h3>
-                                    <p><strong>Donor Rank:</strong> #{donor_rank} of {total_donors} eligible donors</p>
-                                    <p><strong>Distance:</strong> {distance_display} km</p>
-                                    <p><strong>Response Time:</strong> {WAIT_MINUTES} minutes</p>
-                                </div>
-                                """, unsafe_allow_html=True)
-                                
-                                st.markdown(f"""
-                                <div style='text-align: center; padding: 2rem; background: linear-gradient(135deg, #1a1a2e, #16213e); border-radius: 20px; color: white; margin: 2rem 0;'>
-                                    <h3>⏳ Response Timer</h3>
-                                    <div class='countdown-timer'>{WAIT_MINUTES}:00</div>
-                                    <p>Waiting for donor response...</p>
-                                </div>
-                                """, unsafe_allow_html=True)
-                                
-                                st.markdown(f"""
-                                **First Donor (Closest):**
-                                - Name: {first_donor.get('name', 'Unknown')}
-                                - Level: {first_donor.get('donor_level', 'New Donor 🌟')}
-                                - Distance: {distance_display} km
-                                """)
-                        else:
-                            st.warning("No eligible donors available.")
-                            execute_query("UPDATE requests SET status='No Donors Available' WHERE request_id=?", (request_id,), commit=True)
+                                if len(all_donors) > 20:
+                                    st.info(f"... and {len(all_donors) - 20} more donors")
 
     # ============================================
     # TRACK REQUEST PAGE
@@ -2139,17 +2979,24 @@ if not st.session_state.get('showing_response', False):
                 else:
                     requests = execute_query(
                         "SELECT * FROM requests WHERE patient_email=? ORDER BY id DESC",
-                        (email,), fetch_all=True
+                        (email,),
+                        fetch_all=True
                     ) or []
                     
                     if requests:
                         for req in requests:
                             if not req:
                                 continue
-                            status_emoji = {"Pending": "⏳", "Accepted": "✅", "No Donors Available": "❌"}.get(req.get('status'), "📝")
+                                
+                            status_emoji = {
+                                "Pending": "⏳",
+                                "Accepted": "✅",
+                                "No Donors Available": "❌"
+                            }.get(req.get('status'), "📝")
                             
                             with st.expander(f"{status_emoji} Request #{req.get('id')} - {req.get('blood', 'Unknown')}"):
                                 col1, col2 = st.columns(2)
+                                
                                 with col1:
                                     st.markdown(f"""
                                     **Patient:** {req.get('patient', 'Unknown')}
@@ -2157,27 +3004,47 @@ if not st.session_state.get('showing_response', False):
                                     **Hospital:** {req.get('hospital', 'Unknown')}
                                     **Status:** {req.get('status', 'Unknown')}
                                     **Request Time:** {req.get('time', 'Unknown')}
+                                    **Total Donors:** {req.get('total_donors_count', 0)}
                                     """)
+                                
                                 with col2:
-                                    if req.get('status') == "Pending" and req.get('last_contacted_time'):
-                                        try:
-                                            last = datetime.strptime(req['last_contacted_time'], "%Y-%m-%d %H:%M:%S")
-                                            elapsed = datetime.now() - last
-                                            remaining = max(0, WAIT_MINUTES - (elapsed.total_seconds() / 60))
-                                            if remaining > 0:
-                                                st.warning(f"⏳ Waiting for response... {remaining:.1f} min left")
-                                                st.progress(min(elapsed.total_seconds() / (WAIT_MINUTES * 60), 1.0))
-                                        except:
-                                            pass
+                                    if req.get('status') == "Pending":
+                                        if req.get('last_contacted_time'):
+                                            try:
+                                                last = datetime.strptime(req['last_contacted_time'], "%Y-%m-%d %H:%M:%S")
+                                                elapsed = datetime.now() - last
+                                                remaining = max(0, WAIT_MINUTES - (elapsed.total_seconds() / 60))
+                                                
+                                                contacted = [x for x in req.get('contacted', '').split(',') if x]
+                                                total = req.get('total_donors_count', 0)
+                                                progress = len(contacted)
+                                                
+                                                if total > 0:
+                                                    st.write(f"**Donors Contacted:** {progress}/{total}")
+                                                    st.progress(progress/total)
+                                                
+                                                if remaining > 0 and progress < total:
+                                                    st.warning(f"⏳ Next donor in {remaining:.1f} minutes")
+                                                elif progress >= total:
+                                                    st.warning("All donors contacted. No one accepted.")
+                                            except:
+                                                st.info("Processing request...")
                                     
-                                    if req.get('status') == "Accepted" and req.get('donor_id'):
-                                        donor = execute_query("SELECT * FROM donors WHERE id=?", (req['donor_id'],), fetch_one=True)
+                                    elif req.get('status') == "Accepted" and req.get('donor_id'):
+                                        donor = execute_query(
+                                            "SELECT * FROM donors WHERE id=?",
+                                            (req['donor_id'],),
+                                            fetch_one=True
+                                        )
                                         if donor:
-                                            distance_display = f"{req.get('closest_donor_distance', 0):.1f}" if req.get('closest_donor_distance') else "Unknown"
                                             st.success("✅ Donor Found!")
+                                            
+                                            distance_display = f"{req.get('closest_donor_distance', 0):.1f}" if req.get('closest_donor_distance') else "Unknown"
+                                            
                                             st.markdown(f"""
                                             **Donor:** {donor.get('name', 'Unknown')}
                                             **Phone:** {donor.get('phone', '')}
+                                            **Email:** {donor.get('email', '')}
                                             **Distance:** {distance_display} km
                                             """)
                     else:
@@ -2189,10 +3056,12 @@ if not st.session_state.get('showing_response', False):
 
     elif menu == "🏆 Donor Leaderboard":
         st.title("🏆 Donor Leaderboard")
+        
         top_donors = execute_query(
             "SELECT name, total_donations, donor_level, blood, location FROM donors WHERE total_donations > 0 ORDER BY total_donations DESC LIMIT 20",
             fetch_all=True
         ) or []
+        
         if top_donors:
             df = pd.DataFrame(top_donors)
             if not df.empty:
@@ -2207,13 +3076,16 @@ if not st.session_state.get('showing_response', False):
 
     elif menu == "🔔 Notifications":
         st.title("🔔 Notifications")
+        
         email = st.text_input("Enter your email")
+        
         if email:
             email = normalize_email(email)
             if not is_valid_email(email):
                 st.error("❌ Invalid email format")
             else:
                 notifications = get_unread_notifications(email)
+                
                 if notifications:
                     st.success(f"You have {len(notifications)} notifications")
                     for notif in notifications:
@@ -2225,6 +3097,7 @@ if not st.session_state.get('showing_response', False):
                                 <small>{notif.get('date', '')}</small>
                             </div>
                             """, unsafe_allow_html=True)
+                    
                     if st.button("Mark all as read"):
                         mark_notifications_read(email)
                         st.rerun()
@@ -2236,62 +3109,122 @@ if not st.session_state.get('showing_response', False):
     # ============================================
 
     elif menu == "👤 Donor Dashboard":
-        if st.session_state.logged_in_donor:
-            donor = execute_query("SELECT * FROM donors WHERE id=?", (st.session_state.logged_in_donor['id'],), fetch_one=True)
+        if st.session_state.logged_in_donor is not None:
+            donor = st.session_state.logged_in_donor
+            
+            donor = execute_query(
+                "SELECT * FROM donors WHERE id=?",
+                (donor['id'],),
+                fetch_one=True
+            )
+            
             if donor:
+                donor_name = donor.get('name', 'Donor')
+                donor_level = donor.get('donor_level', 'New Donor 🌟')
+                donor_blood = donor.get('blood', 'Unknown')
+                donor_donations = donor.get('total_donations', 0)
+                donor_points = donor.get('points', 0)
+                donor_location = donor.get('location', 'Not set')
+                
                 col1, col2 = st.columns([1, 3])
                 with col1:
                     st.markdown("<h1 style='font-size: 5rem;'>🩸</h1>", unsafe_allow_html=True)
                 with col2:
-                    st.markdown(f"<h2>{donor.get('name', 'Donor')}</h2><p>{donor.get('donor_level', 'New Donor 🌟')} • {donor.get('blood', 'Unknown')}</p>", unsafe_allow_html=True)
+                    st.markdown(f"<h2>{donor_name}</h2><p>{donor_level} • {donor_blood} • {donor_location}</p>", unsafe_allow_html=True)
                 
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    st.metric("Donations", donor.get('total_donations', 0))
+                    st.metric("Donations", donor_donations)
                 with col2:
-                    st.metric("Points", donor.get('points', 0))
+                    st.metric("Points", donor_points)
                 with col3:
-                    st.metric("Level", donor.get('donor_level', 'New Donor 🌟'))
+                    st.metric("Level", donor_level)
                 with col4:
-                    eligible, _ = is_donor_eligible(donor)
-                    st.metric("Status", "✅ Eligible" if eligible else "⏳ Cooldown")
+                    eligible, msg = is_donor_eligible(donor)
+                    st.metric("Status", "✅ Eligible" if eligible else "⏳ Cooldown", help=msg)
                 
                 if donor.get('latitude') and donor.get('longitude'):
-                    st.success("📍 Location verified")
+                    st.success("📍 Location verified - You'll be prioritized in donor queue")
                 else:
-                    st.warning("⚠️ Location not verified")
+                    st.warning("⚠️ Location not verified. Update to get priority in donor queue.")
                     new_location = st.text_input("Update your location:")
-                    if st.button("Update"):
+                    if st.button("Update Location"):
                         if update_donor_coordinates(donor['id'], new_location):
                             st.success("Location updated!")
                             st.rerun()
                 
                 st.markdown("---")
                 st.subheader("Donation History")
-                history = execute_query("SELECT * FROM donation_history WHERE donor_id=? ORDER BY donation_date DESC", (donor['id'],), fetch_all=True) or []
+                history = execute_query(
+                    "SELECT * FROM donation_history WHERE donor_id=? ORDER BY donation_date DESC",
+                    (donor['id'],),
+                    fetch_all=True
+                ) or []
+                
                 if history:
-                    st.dataframe(pd.DataFrame(history), use_container_width=True, hide_index=True)
+                    df_history = pd.DataFrame(history)
+                    if not df_history.empty:
+                        if 'donor_distance_km' in df_history.columns:
+                            st.dataframe(df_history[['donation_date', 'hospital', 'blood_type', 'units', 'donor_distance_km', 'points_earned']], 
+                                       use_container_width=True, hide_index=True)
+                        else:
+                            st.dataframe(df_history, use_container_width=True, hide_index=True)
+                else:
+                    st.info("No donation history yet")
                 
                 if st.button("Logout"):
                     st.session_state.logged_in_donor = None
                     st.rerun()
             else:
+                st.error("Donor not found. Please login again.")
                 st.session_state.logged_in_donor = None
         else:
             st.subheader("Login to Dashboard")
             email = st.text_input("Email")
             password = st.text_input("Password", type="password")
+            
             if st.button("Login"):
                 email = normalize_email(email)
                 if not is_valid_email(email):
                     st.error("❌ Invalid email format")
                 else:
-                    donor = execute_query("SELECT * FROM donors WHERE email=?", (email,), fetch_one=True)
+                    donor = execute_query(
+                        "SELECT * FROM donors WHERE email=?",
+                        (email,),
+                        fetch_one=True
+                    )
                     if donor and verify_password(password, donor['password']):
                         st.session_state.logged_in_donor = donor
+                        st.success(f"Welcome back, {donor['name']}!")
                         st.rerun()
                     else:
                         st.error("Invalid credentials")
+
+    # ============================================
+    # HOSPITALS PAGE
+    # ============================================
+
+    elif menu == "🏥 Hospitals":
+        st.title("🏥 Hospitals")
+        
+        location = st.text_input("Enter your location to find nearby hospitals")
+        
+        if location:
+            hospital_manager = HospitalManager()
+            nearby = hospital_manager.get_nearby_hospitals(location)
+            
+            if nearby:
+                for hospital in nearby:
+                    if hospital:
+                        with st.expander(f"🏥 {hospital.get('name', 'Unknown')} - {hospital.get('distance', 0)} km"):
+                            st.markdown(f"""
+                            **Address:** {hospital.get('address', '')}, {hospital.get('city', '')}
+                            **Phone:** {hospital.get('phone', '')}
+                            **Email:** {hospital.get('email', '')}
+                            **Emergency:** {hospital.get('emergency_contact', '')}
+                            """)
+            else:
+                st.info("No hospitals found")
 
     # ============================================
     # BLOOD INVENTORY PAGE
@@ -2302,6 +3235,127 @@ if not st.session_state.get('showing_response', False):
         inventory_manager.display_inventory_dashboard()
 
     # ============================================
+    # DONATION EVENTS PAGE
+    # ============================================
+
+    elif menu == "🎪 Donation Events":
+        st.title("🎪 Donation Events")
+        
+        event_manager = DonationEventManager()
+        location = st.text_input("Enter your location")
+        
+        if location:
+            events = event_manager.get_nearby_events(location)
+            if events:
+                for event in events:
+                    if event:
+                        with st.expander(f"🎪 {event.get('event_name', 'Unknown')} - {event.get('distance', 0)} km"):
+                            st.markdown(f"""
+                            **Date:** {event.get('start_date', '')}
+                            **Location:** {event.get('location', '')}
+                            **Contact:** {event.get('contact_phone', '')}
+                            **Registered:** {event.get('registered_donors', 0)}/{event.get('target_donations', 0)}
+                            """)
+                            
+                            if st.session_state.logged_in_donor is not None:
+                                if st.button("Register", key=f"reg_{event.get('id')}"):
+                                    if event_manager.register_for_event(event.get('id'), st.session_state.logged_in_donor['id']):
+                                        st.success("Registered!")
+            else:
+                st.info("No events found")
+
+    # ============================================
+    # REWARDS STORE PAGE
+    # ============================================
+
+    elif menu == "🎁 Rewards Store":
+        st.title("🎁 Rewards Store")
+        
+        rewards_manager = RewardsManager()
+        
+        if st.session_state.logged_in_donor is not None:
+            donor = st.session_state.logged_in_donor
+            summary = rewards_manager.get_donor_points_summary(donor['id'])
+            if summary:
+                st.markdown(f"### Your Points: {summary.get('current_points', 0)}")
+            else:
+                st.markdown("### Your Points: 0")
+        
+        rewards = rewards_manager.get_available_rewards()
+        if rewards:
+            cols = st.columns(3)
+            for i, reward in enumerate(rewards):
+                if reward:
+                    with cols[i % 3]:
+                        st.markdown(f"""
+                        <div class='reward-card'>
+                            <h3>{reward.get('item_name', '')}</h3>
+                            <p>{reward.get('points_required', 0)} points</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+        else:
+            st.info("No rewards available at the moment")
+
+    # ============================================
+    # CHAT PAGE
+    # ============================================
+
+    elif menu == "💬 Chat":
+        if st.session_state.logged_in_donor is None:
+            st.warning("Please login to use chat")
+        else:
+            donor = st.session_state.logged_in_donor
+            donor_id = donor['id']
+            chat_manager = ChatManager()
+            
+            unread = chat_manager.get_unread_count(donor_id)
+            if unread > 0:
+                st.info(f"You have {unread} unread messages")
+            
+            others = execute_query(
+                "SELECT id, name FROM donors WHERE id != ? LIMIT 10",
+                (donor_id,),
+                fetch_all=True
+            ) or []
+            
+            if others:
+                st.subheader("Select a donor to chat with:")
+                for other in others:
+                    if other:
+                        col1, col2 = st.columns([3, 1])
+                        with col1:
+                            st.write(f"💬 {other.get('name', 'Unknown')}")
+                        with col2:
+                            if st.button("Chat", key=f"chat_{other.get('id')}"):
+                                st.session_state.current_conversation = other.get('id')
+                                st.rerun()
+                
+                if st.session_state.current_conversation is not None:
+                    other_id = st.session_state.current_conversation
+                    other = execute_query(
+                        "SELECT name FROM donors WHERE id=?",
+                        (other_id,),
+                        fetch_one=True
+                    )
+                    
+                    if other:
+                        chat_manager.display_chat_interface(donor_id, other_id, other.get('name', 'Unknown'))
+            else:
+                st.info("No other donors found")
+
+    # ============================================
+    # IMPACT DASHBOARD
+    # ============================================
+
+    elif menu == "📊 Impact Dashboard":
+        if st.session_state.logged_in_donor is not None:
+            donor = st.session_state.logged_in_donor
+            impact_viz = DonorImpactVisualizer()
+            impact_viz.create_impact_dashboard(donor['id'], donor['name'])
+        else:
+            st.warning("Please login to view your impact dashboard")
+
+    # ============================================
     # ADMIN PANEL
     # ============================================
 
@@ -2310,6 +3364,7 @@ if not st.session_state.get('showing_response', False):
             with st.form("admin_login"):
                 username = st.text_input("Username")
                 password = st.text_input("Password", type="password")
+                
                 if st.form_submit_button("Login"):
                     if username == ADMIN_USER and password == ADMIN_PASS:
                         st.session_state.admin_logged_in = True
@@ -2318,39 +3373,57 @@ if not st.session_state.get('showing_response', False):
                         st.error("Invalid credentials")
         else:
             st.success("Logged in as Admin")
+            
             if st.button("Logout"):
                 st.session_state.admin_logged_in = False
                 st.rerun()
             
-            tab1, tab2, tab3, tab4 = st.tabs(["Overview", "Donors", "Requests", "Email Log"])
+            tab1, tab2, tab3, tab4 = st.tabs(["Overview", "Donors", "Requests", "Queue Monitor"])
             
             with tab1:
                 total_donors = execute_query("SELECT COUNT(*) as count FROM donors", fetch_one=True)
                 total_donors = total_donors['count'] if total_donors else 0
+                
                 total_requests = execute_query("SELECT COUNT(*) as count FROM requests", fetch_one=True)
                 total_requests = total_requests['count'] if total_requests else 0
+                
                 total_donations = execute_query("SELECT COUNT(*) as count FROM donation_history", fetch_one=True)
                 total_donations = total_donations['count'] if total_donations else 0
                 
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Donors", total_donors)
-                col2.metric("Requests", total_requests)
-                col3.metric("Donations", total_donations)
+                pending = execute_query("SELECT COUNT(*) as count FROM requests WHERE status='Pending'", fetch_one=True)
+                pending = pending['count'] if pending else 0
+                
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("Total Donors", total_donors)
+                col2.metric("Total Requests", total_requests)
+                col3.metric("Pending", pending)
+                col4.metric("Completed", total_donations)
             
             with tab2:
                 donors = execute_query("SELECT * FROM donors", fetch_all=True) or []
                 if donors:
-                    st.dataframe(pd.DataFrame(donors), use_container_width=True, hide_index=True)
+                    df = pd.DataFrame(donors)
+                    st.dataframe(df, use_container_width=True, hide_index=True)
             
             with tab3:
                 requests = execute_query("SELECT * FROM requests ORDER BY id DESC", fetch_all=True) or []
                 if requests:
-                    st.dataframe(pd.DataFrame(requests), use_container_width=True, hide_index=True)
+                    df = pd.DataFrame(requests)
+                    st.dataframe(df, use_container_width=True, hide_index=True)
             
             with tab4:
-                email_logs = execute_query("SELECT * FROM email_log ORDER BY sent_date DESC LIMIT 50", fetch_all=True) or []
-                if email_logs:
-                    st.dataframe(pd.DataFrame(email_logs), use_container_width=True, hide_index=True)
+                pending_reqs = execute_query("SELECT * FROM requests WHERE status='Pending'", fetch_all=True) or []
+                for req in pending_reqs:
+                    with st.expander(f"Request #{req.get('request_id')} - {req.get('blood')}"):
+                        contacted = [x for x in req.get('contacted', '').split(',') if x]
+                        total = req.get('total_donors_count', 0)
+                        progress = len(contacted)
+                        
+                        st.write(f"**Progress:** {progress}/{total} donors contacted")
+                        if total > 0:
+                            st.progress(progress/total)
+                        st.write(f"**Current Index:** {req.get('current_donor_index', 0)}")
+                        st.write(f"**Last Contacted:** {req.get('last_contacted_time', 'Not yet')}")
 
     # ============================================
     # EMAIL LOG PAGE
@@ -2358,8 +3431,9 @@ if not st.session_state.get('showing_response', False):
 
     elif menu == "📧 Email Log":
         st.title("📧 Email Log")
+        
         if st.session_state.email_log:
-            for log in st.session_state.email_log[-20:]:
+            for log in st.session_state.email_log[-50:]:
                 if log:
                     color = "#43e97b" if log.get('status') == 'sent' else "#ff6b6b"
                     st.markdown(f"""
@@ -2379,8 +3453,7 @@ if not st.session_state.get('showing_response', False):
     st.sidebar.markdown("---")
     st.sidebar.markdown(f"""
     <div style='text-align: center; color: #666; font-size: 0.8rem;'>
-        <p>BloodAI v9.7 - Complete System</p>
-        <p>📍 <strong style='color: #43e97b;'>Closest Donors First - UNLIMITED DISTANCE</strong></p>
+        <p>BloodAI v12.0 - Complete System</p>
+        <p>📍 <strong style='color: #43e97b;'>All Donors Notified • Closest First • {WAIT_MINUTES} Min Rotation</strong></p>
     </div>
-
     """, unsafe_allow_html=True)
