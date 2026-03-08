@@ -2382,4 +2382,5 @@ if not st.session_state.get('showing_response', False):
         <p>BloodAI v9.7 - Complete System</p>
         <p>📍 <strong style='color: #43e97b;'>Closest Donors First - UNLIMITED DISTANCE</strong></p>
     </div>
+
     """, unsafe_allow_html=True)
