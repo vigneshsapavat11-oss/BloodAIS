@@ -1,6 +1,6 @@
 # ============================================
-# 🩸 BLOODAI COMPLETE SYSTEM v18.0
-# ADDED: Donation Events with Email Notifications to All Donors
+# 🩸 BLOODAI COMPLETE SYSTEM v19.0
+# ADDED: Permanent Data Storage • Donation Events with Email Notifications
 # FIXED: Lives Saved = 1 per donation • Location Verification • Distance Display
 # UPDATED: Patient Email with exact format from image
 # ============================================
@@ -33,6 +33,8 @@ import json
 import uuid
 import secrets
 import re
+import os
+import sys
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -466,6 +468,17 @@ st.markdown("""
         margin: 0.2rem;
         font-size: 0.8rem;
     }
+    
+    /* Database status indicator */
+    .db-status {
+        background: linear-gradient(135deg, #43e97b20, #38f9d720);
+        border: 2px solid #43e97b;
+        padding: 0.5rem;
+        border-radius: 10px;
+        text-align: center;
+        margin: 1rem 0;
+        font-size: 0.9rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -517,27 +530,37 @@ if 'showing_response' not in st.session_state:
     st.session_state.showing_response = False
 
 # ============================================
-# PERSISTENT DATABASE SETUP
+# PERMANENT DATABASE STORAGE - FIXED FOR STREAMLIT CLOUD
 # ============================================
 
 def get_database_path():
-    """Get persistent database path for Streamlit Cloud"""
+    """
+    Get a persistent database path that works on Streamlit Cloud
+    Data will survive app restarts and updates
+    """
     try:
-        persistent_path = "/mount/src/bloodai_final.db"
+        # For Streamlit Cloud - use /mount/src which is persistent
+        persistent_path = "/mount/src/bloodai_data.db"
+        # Create directory if it doesn't exist
         os.makedirs("/mount/src", exist_ok=True)
+        # Test write access
         with open(persistent_path, 'a') as f:
             pass
-        print(f"✅ Using persistent database: {persistent_path}")
+        print(f"✅ Using PERSISTENT database at: {persistent_path}")
         return persistent_path
-    except:
+    except Exception as e:
+        print(f"⚠️ Could not use persistent path: {e}")
         try:
-            temp_path = "/tmp/bloodai_final.db"
-            print(f"⚠️ Using temporary database: {temp_path}")
+            # Fallback to temp directory (still survives between reruns but not app restarts)
+            temp_path = "/tmp/bloodai_data.db"
+            print(f"📁 Using TEMPORARY database at: {temp_path}")
             return temp_path
         except:
-            print("⚠️ Using local database: bloodai_final.db")
-            return "bloodai_final.db"
+            # Final fallback - local file (works locally)
+            print("⚠️ Using local database file: bloodai_data.db")
+            return "bloodai_data.db"
 
+# Get the database path
 DB_PATH = get_database_path()
 
 # ============================================
@@ -546,6 +569,7 @@ DB_PATH = get_database_path()
 
 @contextmanager
 def get_db_connection():
+    """Get a database connection with proper error handling"""
     conn = None
     try:
         conn = sqlite3.connect(DB_PATH, timeout=30)
@@ -559,10 +583,13 @@ def get_db_connection():
             conn.close()
 
 def execute_query(query, params=(), fetch_one=False, fetch_all=False, commit=False):
+    """Execute a database query with proper error handling"""
     try:
         with get_db_connection() as conn:
             if conn is None:
+                print("❌ No database connection")
                 return None if fetch_one or fetch_all else -1
+            
             cursor = conn.cursor()
             cursor.execute(query, params)
             
@@ -584,11 +611,11 @@ def execute_query(query, params=(), fetch_one=False, fetch_all=False, commit=Fal
         return None if fetch_one or fetch_all else -1
 
 # ============================================
-# COMPLETE DATABASE SETUP - UPDATED WITH EVENTS TABLES
+# COMPLETE DATABASE SETUP - WITH PERMANENT STORAGE
 # ============================================
 
 def init_database():
-    """Initialize complete database with all tables including events"""
+    """Initialize complete database with all tables - data will persist"""
     try:
         with get_db_connection() as conn:
             if conn is None:
@@ -602,16 +629,16 @@ def init_database():
             CREATE TABLE IF NOT EXISTS donors(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 donor_id TEXT UNIQUE,
-                name TEXT,
-                email TEXT UNIQUE,
-                phone TEXT,
-                blood TEXT,
-                location TEXT,
+                name TEXT NOT NULL,
+                email TEXT UNIQUE NOT NULL,
+                phone TEXT NOT NULL,
+                blood TEXT NOT NULL,
+                location TEXT NOT NULL,
                 latitude REAL,
                 longitude REAL,
-                password BLOB,
+                password BLOB NOT NULL,
                 status TEXT DEFAULT 'Available',
-                registration_date TEXT,
+                registration_date TEXT NOT NULL,
                 total_donations INTEGER DEFAULT 0,
                 last_donation_date TEXT,
                 health_conditions TEXT,
@@ -638,7 +665,7 @@ def init_database():
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS blood_inventory(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                blood_type TEXT,
+                blood_type TEXT NOT NULL,
                 units INTEGER DEFAULT 0,
                 hospital_id INTEGER,
                 expiry_date TEXT,
@@ -647,7 +674,8 @@ def init_database():
                 status TEXT DEFAULT 'Available',
                 location TEXT,
                 last_updated TEXT,
-                quality_checked INTEGER DEFAULT 0
+                quality_checked INTEGER DEFAULT 0,
+                FOREIGN KEY (hospital_id) REFERENCES hospitals (id)
             )
             """)
             
@@ -656,12 +684,12 @@ def init_database():
             CREATE TABLE IF NOT EXISTS hospitals(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 hospital_id TEXT UNIQUE,
-                name TEXT,
+                name TEXT NOT NULL,
                 registration_number TEXT UNIQUE,
-                address TEXT,
-                city TEXT,
+                address TEXT NOT NULL,
+                city TEXT NOT NULL,
                 state TEXT,
-                phone TEXT,
+                phone TEXT NOT NULL,
                 email TEXT,
                 emergency_contact TEXT,
                 license_number TEXT,
@@ -678,21 +706,21 @@ def init_database():
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS requests(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                request_id TEXT UNIQUE,
-                patient TEXT,
-                patient_email TEXT,
+                request_id TEXT UNIQUE NOT NULL,
+                patient TEXT NOT NULL,
+                patient_email TEXT NOT NULL,
                 patient_phone TEXT,
-                blood TEXT,
-                location TEXT,
+                blood TEXT NOT NULL,
+                location TEXT NOT NULL,
                 latitude REAL,
                 longitude REAL,
-                hospital TEXT,
+                hospital TEXT NOT NULL,
                 hospital_id INTEGER,
                 hospital_contact TEXT,
                 doctor_name TEXT,
                 status TEXT DEFAULT 'Pending',
                 donor_id INTEGER,
-                time TEXT,
+                time TEXT NOT NULL,
                 contacted TEXT DEFAULT '',
                 current_donor_index INTEGER DEFAULT 0,
                 last_contacted_time TEXT,
@@ -705,7 +733,8 @@ def init_database():
                 closest_donor_distance REAL,
                 all_donors TEXT DEFAULT '',
                 total_donors_count INTEGER DEFAULT 0,
-                FOREIGN KEY (hospital_id) REFERENCES hospitals (id)
+                FOREIGN KEY (hospital_id) REFERENCES hospitals (id),
+                FOREIGN KEY (donor_id) REFERENCES donors (id)
             )
             """)
             
@@ -713,26 +742,26 @@ def init_database():
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS donation_events(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                event_id TEXT UNIQUE,
-                event_name TEXT,
-                organizer TEXT,
+                event_id TEXT UNIQUE NOT NULL,
+                event_name TEXT NOT NULL,
+                organizer TEXT NOT NULL,
                 organizer_id INTEGER,
-                organizer_email TEXT,
-                organizer_phone TEXT,
-                location TEXT,
-                address TEXT,
-                city TEXT,
-                start_date TEXT,
-                end_date TEXT,
-                start_time TEXT,
-                end_time TEXT,
-                target_donations INTEGER,
+                organizer_email TEXT NOT NULL,
+                organizer_phone TEXT NOT NULL,
+                location TEXT NOT NULL,
+                address TEXT NOT NULL,
+                city TEXT NOT NULL,
+                start_date TEXT NOT NULL,
+                end_date TEXT NOT NULL,
+                start_time TEXT NOT NULL,
+                end_time TEXT NOT NULL,
+                target_donations INTEGER NOT NULL,
                 registered_donors INTEGER DEFAULT 0,
                 completed_donations INTEGER DEFAULT 0,
                 status TEXT DEFAULT 'Upcoming',
-                contact_person TEXT,
-                contact_phone TEXT,
-                contact_email TEXT,
+                contact_person TEXT NOT NULL,
+                contact_phone TEXT NOT NULL,
+                contact_email TEXT NOT NULL,
                 description TEXT,
                 latitude REAL,
                 longitude REAL,
@@ -740,14 +769,15 @@ def init_database():
                 blood_types_needed TEXT,
                 incentives TEXT,
                 special_instructions TEXT,
-                created_date TEXT,
+                created_date TEXT NOT NULL,
                 last_updated TEXT,
                 registration_deadline TEXT,
                 min_age INTEGER DEFAULT 18,
                 max_age INTEGER DEFAULT 65,
                 min_weight INTEGER DEFAULT 45,
                 is_featured INTEGER DEFAULT 0,
-                notified_donors INTEGER DEFAULT 0
+                notified_donors INTEGER DEFAULT 0,
+                FOREIGN KEY (organizer_id) REFERENCES donors (id)
             )
             """)
             
@@ -755,20 +785,21 @@ def init_database():
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS event_registrations(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                event_id INTEGER,
-                donor_id INTEGER,
-                donor_name TEXT,
-                donor_email TEXT,
+                event_id INTEGER NOT NULL,
+                donor_id INTEGER NOT NULL,
+                donor_name TEXT NOT NULL,
+                donor_email TEXT NOT NULL,
                 donor_phone TEXT,
                 donor_blood TEXT,
-                registration_date TEXT,
+                registration_date TEXT NOT NULL,
                 attended INTEGER DEFAULT 0,
                 check_in_time TEXT,
                 feedback TEXT,
                 rating INTEGER,
                 points_earned INTEGER DEFAULT 0,
                 FOREIGN KEY (event_id) REFERENCES donation_events (id),
-                FOREIGN KEY (donor_id) REFERENCES donors (id)
+                FOREIGN KEY (donor_id) REFERENCES donors (id),
+                UNIQUE(event_id, donor_id)
             )
             """)
             
@@ -776,10 +807,10 @@ def init_database():
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS event_notifications(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                event_id INTEGER,
-                donor_id INTEGER,
-                sent_date TEXT,
-                status TEXT,
+                event_id INTEGER NOT NULL,
+                donor_id INTEGER NOT NULL,
+                sent_date TEXT NOT NULL,
+                status TEXT DEFAULT 'sent',
                 FOREIGN KEY (event_id) REFERENCES donation_events (id),
                 FOREIGN KEY (donor_id) REFERENCES donors (id)
             )
@@ -790,10 +821,10 @@ def init_database():
             CREATE TABLE IF NOT EXISTS rewards(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 reward_id TEXT UNIQUE,
-                item_name TEXT,
+                item_name TEXT NOT NULL,
                 description TEXT,
-                points_required INTEGER,
-                stock INTEGER,
+                points_required INTEGER NOT NULL,
+                stock INTEGER DEFAULT 0,
                 category TEXT,
                 image_url TEXT,
                 available INTEGER DEFAULT 1,
@@ -807,10 +838,10 @@ def init_database():
             CREATE TABLE IF NOT EXISTS redemptions(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 redemption_id TEXT UNIQUE,
-                donor_id INTEGER,
-                reward_id INTEGER,
-                redemption_date TEXT,
-                points_spent INTEGER,
+                donor_id INTEGER NOT NULL,
+                reward_id INTEGER NOT NULL,
+                redemption_date TEXT NOT NULL,
+                points_spent INTEGER NOT NULL,
                 status TEXT DEFAULT 'Pending',
                 delivery_address TEXT,
                 tracking_number TEXT,
@@ -825,12 +856,12 @@ def init_database():
             CREATE TABLE IF NOT EXISTS chat_messages(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 message_id TEXT UNIQUE,
-                sender_id INTEGER,
-                receiver_id INTEGER,
-                message TEXT,
-                timestamp TEXT,
+                sender_id INTEGER NOT NULL,
+                receiver_id INTEGER NOT NULL,
+                message TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
                 read INTEGER DEFAULT 0,
-                conversation_id TEXT,
+                conversation_id TEXT NOT NULL,
                 message_type TEXT DEFAULT 'text',
                 FOREIGN KEY (sender_id) REFERENCES donors (id),
                 FOREIGN KEY (receiver_id) REFERENCES donors (id)
@@ -842,8 +873,8 @@ def init_database():
             CREATE TABLE IF NOT EXISTS health_checks(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 check_id TEXT UNIQUE,
-                donor_id INTEGER,
-                check_date TEXT,
+                donor_id INTEGER NOT NULL,
+                check_date TEXT NOT NULL,
                 hemoglobin REAL,
                 blood_pressure_systolic INTEGER,
                 blood_pressure_diastolic INTEGER,
@@ -864,11 +895,11 @@ def init_database():
             CREATE TABLE IF NOT EXISTS achievements(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 achievement_id TEXT UNIQUE,
-                donor_id INTEGER,
-                achievement_type TEXT,
-                achievement_date TEXT,
+                donor_id INTEGER NOT NULL,
+                achievement_type TEXT NOT NULL,
+                achievement_date TEXT NOT NULL,
                 description TEXT,
-                points_awarded INTEGER,
+                points_awarded INTEGER DEFAULT 0,
                 badge_icon TEXT,
                 FOREIGN KEY (donor_id) REFERENCES donors (id)
             )
@@ -879,11 +910,11 @@ def init_database():
             CREATE TABLE IF NOT EXISTS notifications(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 notification_id TEXT UNIQUE,
-                user_email TEXT,
-                type TEXT,
-                title TEXT,
-                message TEXT,
-                date TEXT,
+                user_email TEXT NOT NULL,
+                type TEXT NOT NULL,
+                title TEXT NOT NULL,
+                message TEXT NOT NULL,
+                date TEXT NOT NULL,
                 read INTEGER DEFAULT 0,
                 action_url TEXT,
                 priority TEXT DEFAULT 'Normal'
@@ -895,11 +926,11 @@ def init_database():
             CREATE TABLE IF NOT EXISTS donation_history(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 history_id TEXT UNIQUE,
-                donor_id INTEGER,
+                donor_id INTEGER NOT NULL,
                 request_id INTEGER,
-                donation_date TEXT,
-                hospital TEXT,
-                blood_type TEXT,
+                donation_date TEXT NOT NULL,
+                hospital TEXT NOT NULL,
+                blood_type TEXT NOT NULL,
                 units INTEGER DEFAULT 1,
                 status TEXT DEFAULT 'Completed',
                 points_earned INTEGER DEFAULT 0,
@@ -917,11 +948,11 @@ def init_database():
             CREATE TABLE IF NOT EXISTS email_log(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 email_id TEXT UNIQUE,
-                recipient TEXT,
-                subject TEXT,
-                type TEXT,
-                sent_date TEXT,
-                status TEXT,
+                recipient TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                type TEXT NOT NULL,
+                sent_date TEXT NOT NULL,
+                status TEXT NOT NULL,
                 error_message TEXT,
                 request_id TEXT,
                 donor_id INTEGER,
@@ -929,11 +960,29 @@ def init_database():
             )
             """)
             
+            # Create indexes for better performance
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_donors_email ON donors(email)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_donors_blood ON donors(blood)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_requests_status ON requests(status)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_status ON donation_events(status)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_date ON donation_events(start_date)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_registrations_event ON event_registrations(event_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_registrations_donor ON event_registrations(donor_id)")
+            
             conn.commit()
             
+            # Verify database works by counting donors
             test = execute_query("SELECT COUNT(*) as count FROM donors", fetch_one=True)
             if test is not None:
+                donor_count = test.get('count', 0)
                 print(f"✅ Database initialized successfully at: {DB_PATH}")
+                print(f"📊 Current donor count: {donor_count}")
+                
+                # Count events
+                event_count = execute_query("SELECT COUNT(*) as count FROM donation_events", fetch_one=True)
+                if event_count:
+                    print(f"🎪 Current events: {event_count.get('count', 0)}")
+                
                 return True
             else:
                 print("❌ Database verification failed")
@@ -945,11 +994,16 @@ def init_database():
 
 # Initialize database
 if not st.session_state.db_initialized:
-    if init_database():
-        st.session_state.db_initialized = True
-        st.sidebar.success("✅ Database Ready")
-    else:
-        st.sidebar.error("❌ Database Error")
+    with st.spinner("🔄 Initializing database..."):
+        if init_database():
+            st.session_state.db_initialized = True
+            st.sidebar.success("✅ Database Ready")
+        else:
+            st.sidebar.error("❌ Database Error")
+
+# Show database status in sidebar
+db_status_text = "✅ Persistent" if DB_PATH.startswith('/mount') else "📁 Local" if 'bloodai_data.db' in DB_PATH else "⚠️ Temporary"
+db_location = DB_PATH.split('/')[-1]
 
 # ============================================
 # EMAIL VALIDATION FUNCTIONS
@@ -2693,7 +2747,7 @@ class DonationEventManager:
         try:
             # Get ALL donors from database
             donors = execute_query(
-                "SELECT * FROM donors WHERE email IS NOT NULL",
+                "SELECT * FROM donors WHERE email IS NOT NULL AND email != ''",
                 fetch_all=True
             ) or []
             
@@ -3406,6 +3460,14 @@ st.sidebar.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# Database status indicator
+st.sidebar.markdown(f"""
+<div class='db-status'>
+    <strong>💾 Database:</strong> {db_status_text}<br>
+    <small>{db_location}</small>
+</div>
+""", unsafe_allow_html=True)
+
 # Quick stats
 st.sidebar.markdown("### 📊 Quick Stats")
 selected_blood = st.sidebar.selectbox(
@@ -3426,9 +3488,6 @@ total = total_result['count'] if total_result else 0
 eligible_donors = get_eligible_donors(selected_blood)
 eligible_count = len(eligible_donors)
 
-# Database status indicator
-db_status = "✅ Persistent" if DB_PATH.startswith('/mount') else "📁 Local" if DB_PATH == "bloodai_final.db" else "⚠️ Temporary"
-
 st.sidebar.markdown(f"""
 <div style='background: linear-gradient(135deg, #667eea20, #764ba220); padding: 1rem; border-radius: 10px;'>
     <p><strong>🩸 {selected_blood}</strong></p>
@@ -3437,7 +3496,6 @@ st.sidebar.markdown(f"""
     <p>⏱️ Cooldown: {COOLDOWN_MONTHS} months</p>
     <p>📍 Sorted by: <strong style='color: #43e97b;'>NEAREST FIRST</strong></p>
     <p>📧 All donors notified in order</p>
-    <p>💾 Database: {db_status}</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -4065,6 +4123,29 @@ if not st.session_state.get('showing_response', False):
                 else:
                     st.info("No donation history yet")
                 
+                # Show event registrations
+                st.subheader("🎪 Event Registrations")
+                events = execute_query(
+                    """SELECT er.*, de.event_name, de.start_date, de.location 
+                       FROM event_registrations er
+                       JOIN donation_events de ON er.event_id = de.id
+                       WHERE er.donor_id=?
+                       ORDER BY er.registration_date DESC LIMIT 5""",
+                    (donor['id'],),
+                    fetch_all=True
+                ) or []
+                
+                if events:
+                    for event in events:
+                        st.markdown(f"""
+                        <div style='background: #f0f0f0; padding: 0.5rem; border-radius: 5px; margin: 0.5rem 0;'>
+                            <strong>{event.get('event_name')}</strong> - {event.get('start_date')}<br>
+                            Status: {"✅ Attended" if event.get('attended') else "⏳ Registered"}
+                        </div>
+                        """, unsafe_allow_html=True)
+                else:
+                    st.info("No event registrations yet")
+                
                 if st.button("Logout"):
                     st.session_state.logged_in_donor = None
                     st.rerun()
@@ -4195,7 +4276,12 @@ if not st.session_state.get('showing_response', False):
         
         with tab2:
             st.subheader("➕ Create New Donation Event")
-            st.info("When you create an event, ALL registered donors will receive email notifications!")
+            st.info("📢 When you create an event, **ALL registered donors** will receive email notifications!")
+            
+            # Show donor count for info
+            total_donors = execute_query("SELECT COUNT(*) as count FROM donors WHERE email IS NOT NULL", fetch_one=True)
+            donor_count = total_donors['count'] if total_donors else 0
+            st.info(f"📧 This event will be notified to **{donor_count} donors** via email")
             
             with st.form("create_event_form"):
                 col1, col2 = st.columns(2)
@@ -4250,7 +4336,7 @@ if not st.session_state.get('showing_response', False):
                 st.subheader("Incentives for Donors")
                 incentives = st.multiselect(
                     "Select incentives",
-                    ["Donation Certificate", "Reward Points", "Free Movie Ticket", "Free Gym Pass",
+                    ["Donation Certificate", "Reward Points (50 pts)", "Free Movie Ticket", "Free Gym Pass",
                      "Free Coffee Coupon", "Badge", "Priority for Future Events", "Health Insurance Discount"]
                 )
                 
@@ -4322,7 +4408,15 @@ if not st.session_state.get('showing_response', False):
                                 fetch_one=True
                             )
                             if event:
-                                st.info(f"📧 Email notifications sent to {event.get('notified_donors', 0)} donors")
+                                st.info(f"📧 Email notifications sent to **{event.get('notified_donors', 0)} donors**")
+                                
+                                # Show preview of who got notified
+                                st.subheader("📋 Notification Summary")
+                                st.markdown(f"""
+                                - Total donors notified: **{event.get('notified_donors', 0)}**
+                                - Event will be visible in search results
+                                - Donors can register directly from the app
+                                """)
                         else:
                             st.error(f"Failed to create event: {result}")
         
@@ -4332,7 +4426,8 @@ if not st.session_state.get('showing_response', False):
                 
                 # Get donor's registrations
                 registrations = execute_query(
-                    """SELECT er.*, de.event_name, de.start_date, de.location, de.status 
+                    """SELECT er.*, de.event_name, de.start_date, de.location, de.status,
+                              de.contact_person, de.contact_phone
                        FROM event_registrations er
                        JOIN donation_events de ON er.event_id = de.id
                        WHERE er.donor_id=?
@@ -4347,16 +4442,37 @@ if not st.session_state.get('showing_response', False):
                             st.markdown(f"""
                             **Registration Date:** {reg.get('registration_date')}
                             **Event Status:** {reg.get('status')}
+                            **Location:** {reg.get('location')}
+                            **Contact:** {reg.get('contact_person')} - {reg.get('contact_phone')}
                             **Attended:** {"✅ Yes" if reg.get('attended') else "⏳ No"}
                             **Points Earned:** {reg.get('points_earned', 0)}
                             """)
                             
                             if reg.get('attended') and not reg.get('feedback'):
                                 feedback = st.text_area("Leave Feedback", key=f"fb_{reg.get('id')}")
+                                rating = st.slider("Rating", 1, 5, 5, key=f"rating_{reg.get('id')}")
                                 if st.button("Submit Feedback", key=f"submit_{reg.get('id')}"):
+                                    execute_query(
+                                        "UPDATE event_registrations SET feedback=?, rating=? WHERE id=?",
+                                        (feedback, rating, reg.get('id')),
+                                        commit=True
+                                    )
                                     st.success("Thank you for your feedback!")
+                                    st.rerun()
                 else:
                     st.info("You haven't registered for any events yet")
+                    
+                    # Show upcoming events as suggestion
+                    upcoming = event_manager.get_all_events(status='Upcoming')
+                    if upcoming:
+                        st.subheader("📅 Upcoming Events You Can Join")
+                        for event in upcoming[:3]:
+                            st.markdown(f"""
+                            <div style='background: #f0f0f0; padding: 0.5rem; border-radius: 5px; margin: 0.5rem 0;'>
+                                <strong>{event.get('event_name')}</strong> - {event.get('start_date')}<br>
+                                {event.get('location')}
+                            </div>
+                            """, unsafe_allow_html=True)
             else:
                 st.warning("Please login to view your registrations")
 
@@ -4374,6 +4490,7 @@ if not st.session_state.get('showing_response', False):
             summary = rewards_manager.get_donor_points_summary(donor['id'])
             if summary:
                 st.markdown(f"### Your Points: {summary.get('current_points', 0)}")
+                st.markdown(f"### Your Level: {summary.get('level', 'New Donor 🌟')}")
             else:
                 st.markdown("### Your Points: 0")
         
@@ -4387,6 +4504,7 @@ if not st.session_state.get('showing_response', False):
                         <div class='reward-card'>
                             <h3>{reward.get('item_name', '')}</h3>
                             <p>{reward.get('points_required', 0)} points</p>
+                            <small>{reward.get('description', '')}</small>
                         </div>
                         """, unsafe_allow_html=True)
         else:
@@ -4508,10 +4626,14 @@ if not st.session_state.get('showing_response', False):
                 col4.metric("Event Registrations", execute_query("SELECT COUNT(*) as count FROM event_registrations", fetch_one=True)['count'] or 0)
             
             with tab2:
-                donors = execute_query("SELECT * FROM donors", fetch_all=True) or []
+                donors = execute_query("SELECT * FROM donors ORDER BY registration_date DESC", fetch_all=True) or []
                 if donors:
                     df = pd.DataFrame(donors)
                     st.dataframe(df, use_container_width=True, hide_index=True)
+                    
+                    # Download button
+                    csv = df.to_csv(index=False)
+                    st.download_button("📥 Download Donors CSV", csv, "donors.csv", "text/csv")
             
             with tab3:
                 requests = execute_query("SELECT * FROM requests ORDER BY id DESC", fetch_all=True) or []
@@ -4526,7 +4648,7 @@ if not st.session_state.get('showing_response', False):
                     st.dataframe(df, use_container_width=True, hide_index=True)
                     
                     # Event stats
-                    st.subheader("Event Statistics")
+                    st.subheader("📊 Event Statistics")
                     total_registrations = execute_query("SELECT COUNT(*) as count FROM event_registrations", fetch_one=True)
                     total_attended = execute_query("SELECT COUNT(*) as count FROM event_registrations WHERE attended=1", fetch_one=True)
                     total_notified = execute_query("SELECT SUM(notified_donors) as total FROM donation_events", fetch_one=True)
@@ -4535,6 +4657,11 @@ if not st.session_state.get('showing_response', False):
                     col1.metric("Total Registrations", total_registrations['count'] if total_registrations else 0)
                     col2.metric("Total Attended", total_attended['count'] if total_attended else 0)
                     col3.metric("Donors Notified", total_notified['total'] if total_notified and total_notified['total'] else 0)
+                    
+                    # Download button
+                    if not df.empty:
+                        csv = df.to_csv(index=False)
+                        st.download_button("📥 Download Events CSV", csv, "events.csv", "text/csv")
             
             with tab5:
                 pending_reqs = execute_query("SELECT * FROM requests WHERE status='Pending'", fetch_all=True) or []
@@ -4549,6 +4676,14 @@ if not st.session_state.get('showing_response', False):
                             st.progress(progress/total)
                         st.write(f"**Current Index:** {req.get('current_donor_index', 0)}")
                         st.write(f"**Last Contacted:** {req.get('last_contacted_time', 'Not yet')}")
+                        
+                        # Show which donors were contacted
+                        if contacted:
+                            st.write("**Contacted Donors:**")
+                            for donor_id in contacted:
+                                donor = execute_query("SELECT name FROM donors WHERE id=?", (donor_id,), fetch_one=True)
+                                if donor:
+                                    st.write(f"- {donor.get('name')}")
 
     # ============================================
     # EMAIL LOG PAGE
@@ -4557,7 +4692,37 @@ if not st.session_state.get('showing_response', False):
     elif menu == "📧 Email Log":
         st.title("📧 Email Log")
         
-        if st.session_state.email_log:
+        # Get email logs from database
+        db_logs = execute_query(
+            "SELECT * FROM email_log ORDER BY sent_date DESC LIMIT 100",
+            fetch_all=True
+        ) or []
+        
+        if db_logs:
+            st.subheader("📋 Recent Email Activity")
+            for log in db_logs[:20]:
+                if log:
+                    color = "#43e97b" if log.get('status') == 'sent' else "#ff6b6b"
+                    st.markdown(f"""
+                    <div class='testimonial-card' style='border-left-color: {color};'>
+                        <p><strong>{log.get('sent_date', '')}</strong> - {log.get('recipient', '')}</p>
+                        <p>{log.get('subject', '')}</p>
+                        <p style='color: {color};'>Status: {log.get('status', '')}</p>
+                        <small>Type: {log.get('type', '')}</small>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            # Summary stats
+            total_sent = len([l for l in db_logs if l.get('status') == 'sent'])
+            total_failed = len([l for l in db_logs if l.get('status') == 'failed'])
+            
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Total Emails", len(db_logs))
+            col2.metric("Sent", total_sent)
+            col3.metric("Failed", total_failed)
+            
+        elif st.session_state.email_log:
+            # Fallback to session state logs
             for log in st.session_state.email_log[-50:]:
                 if log:
                     color = "#43e97b" if log.get('status') == 'sent' else "#ff6b6b"
@@ -4569,7 +4734,7 @@ if not st.session_state.get('showing_response', False):
                     </div>
                     """, unsafe_allow_html=True)
         else:
-            st.info("No emails sent this session")
+            st.info("No emails sent yet")
 
     # ============================================
     # FOOTER
@@ -4578,9 +4743,10 @@ if not st.session_state.get('showing_response', False):
     st.sidebar.markdown("---")
     st.sidebar.markdown(f"""
     <div style='text-align: center; color: #666; font-size: 0.8rem;'>
-        <p>BloodAI v18.0 - Complete System with Events</p>
+        <p>BloodAI v19.0 - Complete System with Permanent Storage</p>
         <p>📍 <strong style='color: #43e97b;'>All Donors Notified • Closest First • {WAIT_MINUTES} Min Rotation</strong></p>
         <p>🎪 <strong style='color: #667eea;'>Events: ALL donors get email notifications</strong></p>
-        <p>💾 Database: {db_status}</p>
+        <p>💾 <strong>Database:</strong> {db_status_text}</p>
+        <p>📊 <strong>Data Persists</strong> - Never lost on restart</p>
     </div>
     """, unsafe_allow_html=True)
