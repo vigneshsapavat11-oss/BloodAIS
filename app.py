@@ -1,5 +1,6 @@
 # ============================================
-# 🩸 BLOODAI COMPLETE SYSTEM v19.0
+# 🩸 BLOODAI COMPLETE SYSTEM v20.0
+# WITH DONATION EVENTS MANAGEMENT
 # PRODUCTION READY - ALL FEATURES WORKING
 # ============================================
 
@@ -215,6 +216,15 @@ st.markdown("""
         box-shadow: 0 10px 25px rgba(102, 126, 234, 0.3);
     }
     
+    /* Event creation form */
+    .event-form {
+        background: linear-gradient(135deg, #667eea10, #764ba210);
+        padding: 2rem;
+        border-radius: 20px;
+        border: 2px dashed #667eea;
+        margin: 2rem 0;
+    }
+    
     /* QR code container */
     .qr-code-container {
         background: white;
@@ -400,6 +410,75 @@ st.markdown("""
         margin: 2rem 0;
         animation: fadeIn 1s ease-in;
     }
+    
+    /* Event Status Badges */
+    .event-status {
+        display: inline-block;
+        padding: 0.3rem 0.8rem;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: bold;
+    }
+    
+    .status-upcoming {
+        background: #667eea20;
+        color: #667eea;
+        border: 1px solid #667eea;
+    }
+    
+    .status-ongoing {
+        background: #43e97b20;
+        color: #43e97b;
+        border: 1px solid #43e97b;
+        animation: pulse 2s infinite;
+    }
+    
+    .status-completed {
+        background: #99999920;
+        color: #666;
+        border: 1px solid #666;
+    }
+    
+    .status-cancelled {
+        background: #ff6b6b20;
+        color: #ff6b6b;
+        border: 1px solid #ff6b6b;
+    }
+    
+    /* Event Stats */
+    .event-stats {
+        display: flex;
+        justify-content: space-around;
+        margin: 1rem 0;
+        padding: 1rem;
+        background: #f8f9fa;
+        border-radius: 10px;
+    }
+    
+    .stat-item {
+        text-align: center;
+    }
+    
+    .stat-value {
+        font-size: 1.5rem;
+        font-weight: bold;
+        color: #667eea;
+    }
+    
+    .stat-label {
+        font-size: 0.9rem;
+        color: #666;
+    }
+    
+    /* Amenity Tags */
+    .amenity-tag {
+        display: inline-block;
+        padding: 0.2rem 0.5rem;
+        background: #f0f0f0;
+        border-radius: 15px;
+        margin: 0.2rem;
+        font-size: 0.8rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -427,6 +506,7 @@ BLOOD_EXPIRY_DAYS = 42
 
 # Reward Points System
 POINTS_PER_DONATION = 100
+POINTS_PER_EVENT = 50  # Points for attending donation events
 
 # Location Settings - NO DISTANCE LIMIT
 UNLIMITED_DISTANCE = True
@@ -448,6 +528,8 @@ if 'donor_search_progress' not in st.session_state:
     st.session_state.donor_search_progress = 0
 if 'showing_response' not in st.session_state:
     st.session_state.showing_response = False
+if 'event_view' not in st.session_state:
+    st.session_state.event_view = "view"  # view, create, manage
 
 # ============================================
 # PERSISTENT DATABASE SETUP
@@ -645,7 +727,7 @@ def init_database():
             )
             """)
             
-            # Donation Events Table
+            # Donation Events Table - ENHANCED
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS donation_events(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -653,7 +735,11 @@ def init_database():
                 event_name TEXT,
                 organizer TEXT,
                 organizer_id INTEGER,
+                organizer_email TEXT,
+                organizer_phone TEXT,
                 location TEXT,
+                address TEXT,
+                city TEXT,
                 start_date TEXT,
                 end_date TEXT,
                 start_time TEXT,
@@ -664,27 +750,79 @@ def init_database():
                 status TEXT DEFAULT 'Upcoming',
                 contact_person TEXT,
                 contact_phone TEXT,
+                contact_email TEXT,
                 description TEXT,
                 latitude REAL,
                 longitude REAL,
                 amenities TEXT,
                 blood_types_needed TEXT,
-                incentives TEXT
+                incentives TEXT,
+                special_instructions TEXT,
+                created_date TEXT,
+                last_updated TEXT,
+                image_url TEXT,
+                registration_deadline TEXT,
+                min_age INTEGER DEFAULT 18,
+                max_age INTEGER DEFAULT 65,
+                min_weight INTEGER DEFAULT 45,
+                is_featured INTEGER DEFAULT 0,
+                total_points_awarded INTEGER DEFAULT 0
             )
             """)
             
-            # Event Registrations Table
+            # Event Registrations Table - ENHANCED
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS event_registrations(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 event_id INTEGER,
                 donor_id INTEGER,
+                donor_name TEXT,
+                donor_email TEXT,
+                donor_phone TEXT,
+                donor_blood TEXT,
                 registration_date TEXT,
                 attended INTEGER DEFAULT 0,
+                check_in_time TEXT,
+                check_out_time TEXT,
                 feedback TEXT,
                 rating INTEGER,
-                check_in_time TEXT,
                 points_earned INTEGER DEFAULT 0,
+                donation_completed INTEGER DEFAULT 0,
+                units_donated INTEGER DEFAULT 0,
+                notes TEXT,
+                certificate_generated INTEGER DEFAULT 0,
+                certificate_url TEXT,
+                FOREIGN KEY (event_id) REFERENCES donation_events (id),
+                FOREIGN KEY (donor_id) REFERENCES donors (id)
+            )
+            """)
+            
+            # Event Reminders Table
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS event_reminders(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id INTEGER,
+                reminder_type TEXT,
+                reminder_date TEXT,
+                sent INTEGER DEFAULT 0,
+                recipients TEXT,
+                message TEXT,
+                FOREIGN KEY (event_id) REFERENCES donation_events (id)
+            )
+            """)
+            
+            # Event Feedback Table
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS event_feedback(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id INTEGER,
+                donor_id INTEGER,
+                rating INTEGER,
+                feedback TEXT,
+                suggestions TEXT,
+                would_recommend INTEGER DEFAULT 1,
+                feedback_date TEXT,
+                anonymous INTEGER DEFAULT 0,
                 FOREIGN KEY (event_id) REFERENCES donation_events (id),
                 FOREIGN KEY (donor_id) REFERENCES donors (id)
             )
@@ -810,8 +948,10 @@ def init_database():
                 points_earned INTEGER DEFAULT 0,
                 verified_by TEXT,
                 donor_distance_km REAL,
+                event_id INTEGER,
                 FOREIGN KEY (donor_id) REFERENCES donors (id),
-                FOREIGN KEY (request_id) REFERENCES requests (id)
+                FOREIGN KEY (request_id) REFERENCES requests (id),
+                FOREIGN KEY (event_id) REFERENCES donation_events (id)
             )
             """)
             
@@ -827,7 +967,8 @@ def init_database():
                 status TEXT,
                 error_message TEXT,
                 request_id TEXT,
-                donor_id INTEGER
+                donor_id INTEGER,
+                event_id INTEGER
             )
             """)
             
@@ -956,17 +1097,17 @@ def verify_password(password, hashed):
     """Verify password"""
     return bcrypt.checkpw(password.encode('utf-8'), hashed)
 
-def log_email(recipient, subject, email_type, status, error=None, request_id=None, donor_id=None):
+def log_email(recipient, subject, email_type, status, error=None, request_id=None, donor_id=None, event_id=None):
     """Log email sending attempt"""
     try:
         email_id = generate_id('EMAIL')
         execute_query(
             """INSERT INTO email_log 
-               (email_id, recipient, subject, type, sent_date, status, error_message, request_id, donor_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (email_id, recipient, subject, type, sent_date, status, error_message, request_id, donor_id, event_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (email_id, recipient, subject, email_type, 
              datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-             status, error, request_id, donor_id),
+             status, error, request_id, donor_id, event_id),
             commit=True
         )
         st.session_state.email_log.append({
@@ -1738,6 +1879,72 @@ def send_welcome_email(donor_email, donor_name, donor_details):
         return False
 
 # ============================================
+# EVENT REGISTRATION CONFIRMATION EMAIL
+# ============================================
+
+def send_event_registration_email(donor_email, donor_name, event_name, event_details):
+    """Send confirmation email for event registration"""
+    try:
+        if not donor_email:
+            return False
+        
+        donor_email = normalize_email(donor_email)
+        
+        if not is_valid_email(donor_email):
+            print(f"❌ Invalid donor email: {donor_email}")
+            return False
+            
+        subject = f"✅ Registration Confirmed - {event_name}"
+        
+        message = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+</head>
+<body style="font-family: Arial, sans-serif; margin: 0; padding: 0; background: linear-gradient(135deg, #667eea20, #764ba220);">
+    <div style="max-width: 600px; margin: 20px auto; background: white; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.2);">
+        <div style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); padding: 30px; text-align: center;">
+            <h1 style="color: white; margin: 0; font-size: 36px;">✅ Registration Confirmed!</h1>
+        </div>
+        
+        <div style="padding: 30px;">
+            <h2 style="color: #333;">Hello {donor_name},</h2>
+            
+            <p style="color: #666; font-size: 16px;">Thank you for registering for the donation event!</p>
+            
+            <div style="background: #f8f9fa; padding: 20px; border-radius: 15px; margin: 20px 0;">
+                <h3 style="color: #333;">🎪 Event Details:</h3>
+                <p><strong>Event:</strong> {event_name}</p>
+                <p><strong>Date:</strong> {event_details.get('start_date')} at {event_details.get('start_time')}</p>
+                <p><strong>Location:</strong> {event_details.get('location')}</p>
+                <p><strong>Contact:</strong> {event_details.get('contact_phone')}</p>
+            </div>
+            
+            <div style="background: #e8f4fd; padding: 20px; border-radius: 15px;">
+                <h3 style="color: #0056b3;">📋 Important Information:</h3>
+                <ul>
+                    <li>Please bring a valid ID</li>
+                    <li>Eat a healthy meal before donating</li>
+                    <li>Stay hydrated - drink plenty of water</li>
+                    <li>Get a good night's sleep</li>
+                </ul>
+            </div>
+            
+            <p style="margin-top: 30px;">We look forward to seeing you there!</p>
+            <p>- BloodAI Team</p>
+        </div>
+    </div>
+</body>
+</html>
+        """
+        
+        return send_email(donor_email, subject, message, html=True)
+    except Exception as e:
+        print(f"Event registration email error: {e}")
+        return False
+
+# ============================================
 # AUTO NEXT DONOR FUNCTION (Enhanced with queue system)
 # ============================================
 
@@ -2343,10 +2550,177 @@ class HospitalManager:
         return sorted(nearby, key=lambda x: x.get('distance', float('inf')))
 
 # ============================================
-# DONATION EVENTS MANAGEMENT
+# DONATION EVENTS MANAGEMENT - COMPLETE SYSTEM
 # ============================================
 
 class DonationEventManager:
+    def __init__(self):
+        self.blood_types = ['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-']
+    
+    def create_event(self, event_data, organizer_id=None):
+        """Create a new donation event"""
+        try:
+            event_id = generate_id('EVT')
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            # Get coordinates for location
+            coords = get_coords(event_data.get('location'))
+            lat, lon = coords if coords else (None, None)
+            
+            # Convert lists to JSON
+            blood_types_needed = event_data.get('blood_types_needed', [])
+            if isinstance(blood_types_needed, list):
+                blood_types_needed = json.dumps(blood_types_needed)
+            
+            amenities = event_data.get('amenities', [])
+            if isinstance(amenities, list):
+                amenities = json.dumps(amenities)
+            
+            incentives = event_data.get('incentives', [])
+            if isinstance(incentives, list):
+                incentives = json.dumps(incentives)
+            
+            execute_query(
+                """INSERT INTO donation_events 
+                   (event_id, event_name, organizer, organizer_id, organizer_email, organizer_phone,
+                    location, address, city, start_date, end_date, start_time, end_time,
+                    target_donations, registered_donors, completed_donations, status,
+                    contact_person, contact_phone, contact_email, description, latitude, longitude,
+                    amenities, blood_types_needed, incentives, special_instructions, created_date,
+                    min_age, max_age, min_weight, is_featured, registration_deadline)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (event_id, 
+                 event_data.get('event_name'), 
+                 event_data.get('organizer'),
+                 organizer_id,
+                 event_data.get('organizer_email'),
+                 event_data.get('organizer_phone'),
+                 event_data.get('location'),
+                 event_data.get('address'),
+                 event_data.get('city'),
+                 event_data.get('start_date'),
+                 event_data.get('end_date'),
+                 event_data.get('start_time'),
+                 event_data.get('end_time'),
+                 event_data.get('target_donations', 0),
+                 0, 0,
+                 event_data.get('status', 'Upcoming'),
+                 event_data.get('contact_person'),
+                 event_data.get('contact_phone'),
+                 event_data.get('contact_email'),
+                 event_data.get('description'),
+                 lat, lon,
+                 amenities,
+                 blood_types_needed,
+                 incentives,
+                 event_data.get('special_instructions'),
+                 current_time,
+                 event_data.get('min_age', 18),
+                 event_data.get('max_age', 65),
+                 event_data.get('min_weight', 45),
+                 event_data.get('is_featured', 0),
+                 event_data.get('registration_deadline')),
+                commit=True
+            )
+            
+            print(f"✅ Event created: {event_data.get('event_name')} with ID {event_id}")
+            
+            # Send notifications to nearby donors
+            if lat and lon:
+                self.notify_nearby_donors(event_id, event_data, lat, lon)
+            
+            return True, event_id
+            
+        except Exception as e:
+            print(f"Event creation error: {e}")
+            return False, str(e)
+    
+    def notify_nearby_donors(self, event_id, event_data, lat, lon, radius_km=50):
+        """Notify donors near the event location"""
+        try:
+            # Get donors near the event
+            donors = execute_query(
+                "SELECT * FROM donors WHERE latitude IS NOT NULL AND longitude IS NOT NULL",
+                fetch_all=True
+            ) or []
+            
+            nearby_donors = []
+            for donor in donors:
+                if donor and donor.get('latitude') and donor.get('longitude'):
+                    donor_coords = (donor['latitude'], donor['longitude'])
+                    distance = geodesic((lat, lon), donor_coords).km
+                    if distance <= radius_km:
+                        donor['distance'] = round(distance, 2)
+                        nearby_donors.append(donor)
+            
+            # Sort by distance
+            nearby_donors.sort(key=lambda x: x.get('distance', float('inf')))
+            
+            # Send email notifications to top 50 donors
+            for donor in nearby_donors[:50]:
+                self.send_event_notification_email(donor, event_data, donor.get('distance'))
+                time.sleep(0.1)  # Small delay to avoid rate limiting
+            
+            print(f"✅ Notified {len(nearby_donors[:50])} donors about event")
+            return True
+            
+        except Exception as e:
+            print(f"Error notifying donors: {e}")
+            return False
+    
+    def send_event_notification_email(self, donor, event_data, distance):
+        """Send event notification email to donor"""
+        try:
+            donor_email = normalize_email(donor.get('email'))
+            
+            if not is_valid_email(donor_email):
+                return False
+            
+            subject = f"🎪 New Donation Event Near You - {event_data.get('event_name')}"
+            
+            message = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+</head>
+<body style="font-family: Arial, sans-serif; margin: 0; padding: 0; background: linear-gradient(135deg, #667eea20, #764ba220);">
+    <div style="max-width: 600px; margin: 20px auto; background: white; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.2);">
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center;">
+            <h1 style="color: white; margin: 0; font-size: 36px;">🎪 Donation Event Near You!</h1>
+        </div>
+        
+        <div style="padding: 30px;">
+            <h2 style="color: #333;">Hello {donor.get('name', 'Donor')},</h2>
+            
+            <p style="color: #666;">A blood donation event is happening near your location!</p>
+            
+            <div style="background: #f8f9fa; padding: 20px; border-radius: 15px; margin: 20px 0;">
+                <h3 style="color: #333;">📋 Event Details:</h3>
+                <p><strong>Event:</strong> {event_data.get('event_name')}</p>
+                <p><strong>Date:</strong> {event_data.get('start_date')} at {event_data.get('start_time')}</p>
+                <p><strong>Location:</strong> {event_data.get('location')}</p>
+                <p><strong>Distance from you:</strong> {distance:.1f} km</p>
+                <p><strong>Target Donations:</strong> {event_data.get('target_donations', 0)}</p>
+            </div>
+            
+            <div style="text-align: center; margin: 30px 0;">
+                <a href="{BASE_URL}/?event={event_data.get('event_id')}" style="background: #43e97b; color: white; padding: 15px 30px; text-decoration: none; border-radius: 50px; display: inline-block;">📝 Register Now</a>
+            </div>
+            
+            <p style="color: #999; font-size: 12px; text-align: center;">BloodAI - Connecting Donors with Events</p>
+        </div>
+    </div>
+</body>
+</html>
+            """
+            
+            return send_email(donor_email, subject, message, html=True)
+            
+        except Exception as e:
+            print(f"Event notification email error: {e}")
+            return False
+    
     def get_nearby_events(self, location, radius_km=50):
         """Get events near a location"""
         coords = get_coords(location)
@@ -2354,7 +2728,7 @@ class DonationEventManager:
             return []
         
         events = execute_query(
-            "SELECT * FROM donation_events WHERE status='Upcoming'",
+            "SELECT * FROM donation_events WHERE status IN ('Upcoming', 'Ongoing') ORDER BY start_date ASC",
             fetch_all=True
         ) or []
         
@@ -2364,25 +2738,312 @@ class DonationEventManager:
                 event_coords = (event['latitude'], event['longitude'])
                 distance = geodesic(coords, event_coords).km
                 if distance <= radius_km:
-                    event['distance'] = round(distance, 2)
-                    nearby.append(event)
+                    event_dict = dict(event)
+                    event_dict['distance'] = round(distance, 2)
+                    
+                    # Parse JSON fields
+                    if event_dict.get('blood_types_needed'):
+                        try:
+                            event_dict['blood_types_needed'] = json.loads(event_dict['blood_types_needed'])
+                        except:
+                            event_dict['blood_types_needed'] = []
+                    
+                    if event_dict.get('amenities'):
+                        try:
+                            event_dict['amenities'] = json.loads(event_dict['amenities'])
+                        except:
+                            event_dict['amenities'] = []
+                    
+                    if event_dict.get('incentives'):
+                        try:
+                            event_dict['incentives'] = json.loads(event_dict['incentives'])
+                        except:
+                            event_dict['incentives'] = []
+                    
+                    nearby.append(event_dict)
         
         return sorted(nearby, key=lambda x: x.get('distance', float('inf')))
     
-    def register_for_event(self, event_id, donor_id):
+    def get_all_events(self, status=None):
+        """Get all events with optional status filter"""
+        try:
+            if status:
+                events = execute_query(
+                    "SELECT * FROM donation_events WHERE status=? ORDER BY start_date ASC",
+                    (status,),
+                    fetch_all=True
+                ) or []
+            else:
+                events = execute_query(
+                    "SELECT * FROM donation_events ORDER BY start_date ASC",
+                    fetch_all=True
+                ) or []
+            
+            # Parse JSON fields
+            for event in events:
+                if event.get('blood_types_needed'):
+                    try:
+                        event['blood_types_needed'] = json.loads(event['blood_types_needed'])
+                    except:
+                        event['blood_types_needed'] = []
+                
+                if event.get('amenities'):
+                    try:
+                        event['amenities'] = json.loads(event['amenities'])
+                    except:
+                        event['amenities'] = []
+                
+                if event.get('incentives'):
+                    try:
+                        event['incentives'] = json.loads(event['incentives'])
+                    except:
+                        event['incentives'] = []
+            
+            return events
+        except Exception as e:
+            print(f"Error getting events: {e}")
+            return []
+    
+    def register_for_event(self, event_id, donor):
         """Register donor for event"""
         try:
+            # Check if already registered
+            existing = execute_query(
+                "SELECT id FROM event_registrations WHERE event_id=? AND donor_id=?",
+                (event_id, donor['id']),
+                fetch_one=True
+            )
+            
+            if existing:
+                return False, "Already registered"
+            
+            # Check donor eligibility for event
+            if donor.get('age', 0) < 18 or donor.get('age', 0) > 65:
+                return False, "Age not within limits"
+            
+            if donor.get('weight', 0) < 45:
+                return False, "Weight below minimum"
+            
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
             execute_query(
                 """INSERT INTO event_registrations 
-                   (event_id, donor_id, registration_date, attended)
-                   VALUES (?, ?, ?, ?)""",
-                (event_id, donor_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 0),
+                   (event_id, donor_id, donor_name, donor_email, donor_phone, donor_blood,
+                    registration_date, attended)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (event_id, donor['id'], donor.get('name'), donor.get('email'), 
+                 donor.get('phone'), donor.get('blood'),
+                 current_time, 0),
                 commit=True
             )
-            return True
+            
+            # Update registered donors count
+            execute_query(
+                "UPDATE donation_events SET registered_donors = registered_donors + 1 WHERE id=?",
+                (event_id,),
+                commit=True
+            )
+            
+            # Get event details for email
+            event = execute_query(
+                "SELECT * FROM donation_events WHERE id=?",
+                (event_id,),
+                fetch_one=True
+            )
+            
+            if event:
+                send_event_registration_email(
+                    donor.get('email'),
+                    donor.get('name'),
+                    event.get('event_name'),
+                    event
+                )
+            
+            # Add notification
+            add_notification(
+                donor.get('email'),
+                'event_registration',
+                '✅ Event Registration Confirmed',
+                f"You have successfully registered for {event.get('event_name')}",
+                priority='Normal'
+            )
+            
+            return True, "Registration successful"
+            
         except Exception as e:
             print(f"Event registration error: {e}")
+            return False, str(e)
+    
+    def check_in_donor(self, event_id, donor_id):
+        """Check in donor at event"""
+        try:
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            execute_query(
+                """UPDATE event_registrations 
+                   SET attended=1, check_in_time=?
+                   WHERE event_id=? AND donor_id=?""",
+                (current_time, event_id, donor_id),
+                commit=True
+            )
+            
+            # Award points for attending
+            execute_query(
+                "UPDATE donors SET points = points + ? WHERE id=?",
+                (POINTS_PER_EVENT, donor_id),
+                commit=True
+            )
+            
+            # Update completed donations count for event
+            execute_query(
+                "UPDATE donation_events SET completed_donations = completed_donations + 1 WHERE id=?",
+                (event_id,),
+                commit=True
+            )
+            
+            return True
+            
+        except Exception as e:
+            print(f"Check-in error: {e}")
             return False
+    
+    def get_event_stats(self, event_id):
+        """Get statistics for an event"""
+        try:
+            event = execute_query(
+                "SELECT * FROM donation_events WHERE id=?",
+                (event_id,),
+                fetch_one=True
+            )
+            
+            if not event:
+                return None
+            
+            registrations = execute_query(
+                "SELECT COUNT(*) as count FROM event_registrations WHERE event_id=?",
+                (event_id,),
+                fetch_one=True
+            )
+            
+            attended = execute_query(
+                "SELECT COUNT(*) as count FROM event_registrations WHERE event_id=? AND attended=1",
+                (event_id,),
+                fetch_one=True
+            )
+            
+            blood_types = execute_query(
+                """SELECT donor_blood, COUNT(*) as count 
+                   FROM event_registrations 
+                   WHERE event_id=? AND attended=1 
+                   GROUP BY donor_blood""",
+                (event_id,),
+                fetch_all=True
+            ) or []
+            
+            return {
+                'event': event,
+                'total_registered': registrations['count'] if registrations else 0,
+                'total_attended': attended['count'] if attended else 0,
+                'completion_rate': (attended['count'] / registrations['count'] * 100) if registrations and registrations['count'] > 0 else 0,
+                'blood_type_breakdown': blood_types
+            }
+            
+        except Exception as e:
+            print(f"Error getting event stats: {e}")
+            return None
+    
+    def display_event_card(self, event, show_register=True):
+        """Display a beautiful event card"""
+        if not event:
+            return
+        
+        # Determine status color
+        status_class = "status-upcoming"
+        if event.get('status') == 'Ongoing':
+            status_class = "status-ongoing"
+        elif event.get('status') == 'Completed':
+            status_class = "status-completed"
+        elif event.get('status') == 'Cancelled':
+            status_class = "status-cancelled"
+        
+        # Parse dates
+        start_date = event.get('start_date', '')
+        end_date = event.get('end_date', '')
+        
+        # Calculate days left
+        days_left = "N/A"
+        if start_date and event.get('status') == 'Upcoming':
+            try:
+                event_start = datetime.strptime(start_date, "%Y-%m-%d")
+                today = datetime.now()
+                delta = (event_start - today).days
+                if delta >= 0:
+                    days_left = f"{delta} days left"
+                else:
+                    days_left = "Event started"
+            except:
+                pass
+        
+        # Progress percentage
+        target = event.get('target_donations', 0) or 0
+        registered = event.get('registered_donors', 0) or 0
+        progress = (registered / target * 100) if target > 0 else 0
+        
+        st.markdown(f"""
+        <div class='event-card'>
+            <div style='display: flex; justify-content: space-between; align-items: center;'>
+                <h3>{event.get('event_name')}</h3>
+                <span class='event-status {status_class}'>{event.get('status')}</span>
+            </div>
+            
+            <div class='event-stats'>
+                <div class='stat-item'>
+                    <div class='stat-value'>{registered}</div>
+                    <div class='stat-label'>Registered</div>
+                </div>
+                <div class='stat-item'>
+                    <div class='stat-value'>{target}</div>
+                    <div class='stat-label'>Target</div>
+                </div>
+                <div class='stat-item'>
+                    <div class='stat-value'>{event.get('completed_donations', 0)}</div>
+                    <div class='stat-label'>Completed</div>
+                </div>
+            </div>
+            
+            <div style='margin: 1rem 0;'>
+                <p><strong>📅 Date:</strong> {start_date} to {end_date}</p>
+                <p><strong>⏰ Time:</strong> {event.get('start_time')} - {event.get('end_time')}</p>
+                <p><strong>📍 Location:</strong> {event.get('location')}</p>
+                <p><strong>👤 Contact:</strong> {event.get('contact_person')} ({event.get('contact_phone')})</p>
+            </div>
+            
+            <div style='background: #f0f0f0; border-radius: 10px; padding: 0.5rem; margin: 1rem 0;'>
+                <div style='background: #667eea; width: {progress}%; height: 8px; border-radius: 4px;'></div>
+                <p style='text-align: center; margin: 0.5rem 0 0;'><strong>{progress:.1f}%</strong> of target reached</p>
+            </div>
+            
+            {f"<p><strong>🎁 Incentives:</strong> {', '.join(event.get('incentives', []))}</p>" if event.get('incentives') else ""}
+            {f"<p><strong>📍 Distance:</strong> {event.get('distance', 'Unknown')} km</p>" if event.get('distance') else ""}
+            {f"<p><strong>⏳ {days_left}</strong></p>" if days_left != "N/A" else ""}
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Show blood types needed as badges
+        if event.get('blood_types_needed'):
+            st.markdown("**🩸 Blood Types Needed:**")
+            cols = st.columns(len(event['blood_types_needed']))
+            for i, bt in enumerate(event['blood_types_needed']):
+                with cols[i]:
+                    st.markdown(f"<span class='blood-badge'>{bt}</span>", unsafe_allow_html=True)
+        
+        # Show amenities
+        if event.get('amenities'):
+            st.markdown("**✨ Amenities:**")
+            amenities_html = ""
+            for amenity in event['amenities']:
+                amenities_html += f"<span class='amenity-tag'>✨ {amenity}</span> "
+            st.markdown(amenities_html, unsafe_allow_html=True)
 
 # ============================================
 # QR CODE GENERATOR
@@ -2422,6 +3083,37 @@ class QRCodeManager:
             return f"data:image/png;base64,{img_str}"
         except Exception as e:
             print(f"QR generation error: {e}")
+            return None
+    
+    def generate_event_qr(self, event_id, event_data):
+        """Generate QR code for event check-in"""
+        try:
+            qr_data = {
+                'event_id': event_id,
+                'event_name': event_data.get('event_name', ''),
+                'date': event_data.get('start_date', ''),
+                'type': 'event_checkin'
+            }
+            
+            qr_string = json.dumps(qr_data)
+            
+            qr = qrcode.QRCode(
+                version=1,
+                box_size=10,
+                border=5
+            )
+            qr.add_data(qr_string)
+            qr.make(fit=True)
+            
+            img = qr.make_image(fill_color="black", back_color="white")
+            
+            buffered = BytesIO()
+            img.save(buffered, format="PNG")
+            img_str = base64.b64encode(buffered.getvalue()).decode()
+            
+            return f"data:image/png;base64,{img_str}"
+        except Exception as e:
+            print(f"Event QR generation error: {e}")
             return None
 
 # ============================================
@@ -2667,6 +3359,9 @@ class DonorImpactVisualizer:
                 fetch_one=True
             ) or {'count': 0}
             
+            # Get event impact
+            event_impact = events_attended.get('count', 0) * 10  # 10 points per event
+            
             return {
                 'donations': donations.get('count', 0),
                 'units': donations.get('total_units', 0),
@@ -2706,15 +3401,31 @@ class DonorImpactVisualizer:
             with col3:
                 st.metric("Lives Saved", impact.get('lives_saved', 0))
             with col4:
-                st.metric("Total Distance", f"{impact.get('total_distance', 0):.0f} km")
+                st.metric("Events Attended", impact.get('events', 0))
             
             fig = make_subplots(
                 rows=1, cols=2,
                 subplot_titles=("Donation History", "Impact Breakdown")
             )
             
-            months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun']
-            donations_data = [random.randint(0, max(2, impact.get('donations', 0))) for _ in range(6)]
+            # Get actual donation history by month
+            donations_by_month = execute_query(
+                """SELECT strftime('%m', donation_date) as month, COUNT(*) as count
+                   FROM donation_history 
+                   WHERE donor_id=? 
+                   GROUP BY month 
+                   ORDER BY month""",
+                (donor_id,),
+                fetch_all=True
+            ) or []
+            
+            months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+            donations_data = [0] * 12
+            
+            for d in donations_by_month:
+                if d:
+                    month_idx = int(d.get('month', 1)) - 1
+                    donations_data[month_idx] = d.get('count', 0)
             
             fig.add_trace(
                 go.Bar(x=months, y=donations_data, name="Donations", marker_color='#ff6b6b'),
@@ -2735,7 +3446,7 @@ class DonorImpactVisualizer:
             st.markdown(f"""
             <div style='background: linear-gradient(135deg, #667eea20, #764ba220); padding: 2rem; border-radius: 15px; text-align: center;'>
                 <h2>🎉 {donor_name}, you've saved {impact.get('lives_saved', 0)} lives!</h2>
-                <p>Your {impact.get('donations', 0)} donations have made an incredible impact.</p>
+                <p>Your {impact.get('donations', 0)} donations and {impact.get('events', 0)} events have made an incredible impact.</p>
                 <p>📍 Total distance traveled: {impact.get('total_distance', 0):.0f} km</p>
             </div>
             """, unsafe_allow_html=True)
@@ -2793,6 +3504,15 @@ inventory_manager = BloodInventoryManager()
 alerts, _ = inventory_manager.check_stock_alerts()
 if alerts:
     st.sidebar.warning(f"⚠️ {len(alerts)} stock alerts")
+
+# Event quick view
+event_count = execute_query(
+    "SELECT COUNT(*) as count FROM donation_events WHERE status IN ('Upcoming', 'Ongoing')",
+    fetch_one=True
+)
+upcoming_events = event_count['count'] if event_count else 0
+if upcoming_events > 0:
+    st.sidebar.info(f"🎪 {upcoming_events} upcoming events")
 
 st.sidebar.markdown("---")
 
@@ -3466,34 +4186,231 @@ if not st.session_state.get('showing_response', False):
         inventory_manager.display_inventory_dashboard()
 
     # ============================================
-    # DONATION EVENTS PAGE
+    # DONATION EVENTS PAGE - COMPLETE IMPLEMENTATION
     # ============================================
 
     elif menu == "🎪 Donation Events":
         st.title("🎪 Donation Events")
         
+        # Initialize event manager
         event_manager = DonationEventManager()
-        location = st.text_input("Enter your location")
         
-        if location:
-            events = event_manager.get_nearby_events(location)
-            if events:
-                for event in events:
-                    if event:
-                        with st.expander(f"🎪 {event.get('event_name', 'Unknown')} - {event.get('distance', 0)} km"):
+        # Create tabs for different views
+        tab1, tab2, tab3 = st.tabs(["📋 Browse Events", "➕ Create Event", "📊 My Registrations"])
+        
+        with tab1:
+            st.subheader("Find Donation Events Near You")
+            
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                location = st.text_input("Enter your location to find nearby events", 
+                                        placeholder="e.g., MG Road, Bangalore")
+            with col2:
+                radius = st.number_input("Search radius (km)", min_value=5, max_value=200, value=50)
+            
+            if location:
+                with st.spinner("🔍 Finding events near you..."):
+                    events = event_manager.get_nearby_events(location, radius)
+                
+                if events:
+                    st.success(f"Found {len(events)} events near you!")
+                    
+                    # Filter options
+                    blood_filter = st.multiselect("Filter by blood type needed", BLOOD_TYPES)
+                    
+                    for event in events:
+                        if blood_filter and event.get('blood_types_needed'):
+                            # Check if any of the selected blood types are needed
+                            if not any(bt in event['blood_types_needed'] for bt in blood_filter):
+                                continue
+                        
+                        event_manager.display_event_card(event)
+                        
+                        # Registration button
+                        if st.session_state.logged_in_donor is not None:
+                            if st.button(f"📝 Register for {event.get('event_name')}", key=f"reg_{event.get('id')}"):
+                                success, message = event_manager.register_for_event(
+                                    event.get('id'), 
+                                    st.session_state.logged_in_donor
+                                )
+                                if success:
+                                    st.success(message)
+                                    st.balloons()
+                                    st.rerun()
+                                else:
+                                    st.error(message)
+                        else:
+                            st.info("Please login to register for events")
+                else:
+                    st.info("No events found in your area. Try expanding the search radius or check back later.")
+            
+            else:
+                # Show upcoming events without location
+                st.info("Enter your location to see events near you")
+                
+                all_events = event_manager.get_all_events(status='Upcoming')
+                if all_events:
+                    st.subheader("📅 Upcoming Events (All Locations)")
+                    for event in all_events[:5]:
+                        event_manager.display_event_card(event)
+        
+        with tab2:
+            st.subheader("➕ Create New Donation Event")
+            st.info("Fill in the details below to create a new donation event")
+            
+            with st.form("create_event_form"):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    event_name = st.text_input("Event Name*", placeholder="e.g., Annual Blood Donation Camp")
+                    organizer = st.text_input("Organizer Name*", placeholder="e.g., Red Cross Society")
+                    organizer_email = st.text_input("Organizer Email*")
+                    organizer_phone = st.text_input("Organizer Phone*")
+                    
+                    start_date = st.date_input("Start Date*", min_value=date.today())
+                    end_date = st.date_input("End Date*", min_value=start_date)
+                    
+                    start_time = st.time_input("Start Time*", value=datetime.now().time())
+                    end_time = st.time_input("End Time*", value=datetime.now().time())
+                
+                with col2:
+                    location = st.text_input("Event Location*", 
+                                            placeholder="Full address with city and pincode")
+                    address = st.text_area("Detailed Address*")
+                    city = st.text_input("City*")
+                    
+                    contact_person = st.text_input("Contact Person*")
+                    contact_phone = st.text_input("Contact Phone*")
+                    contact_email = st.text_input("Contact Email*")
+                    
+                    target_donations = st.number_input("Target Donations*", min_value=1, value=50)
+                    
+                    registration_deadline = st.date_input("Registration Deadline", 
+                                                          min_value=date.today(),
+                                                          value=start_date - timedelta(days=1) if start_date else date.today())
+                
+                st.subheader("Event Requirements")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    min_age = st.number_input("Minimum Age", min_value=18, max_value=60, value=18)
+                with col2:
+                    max_age = st.number_input("Maximum Age", min_value=18, max_value=100, value=65)
+                with col3:
+                    min_weight = st.number_input("Minimum Weight (kg)", min_value=45, value=45)
+                
+                st.subheader("Blood Types Needed")
+                blood_types_needed = st.multiselect("Select blood types", BLOOD_TYPES, default=BLOOD_TYPES)
+                
+                st.subheader("Amenities Available")
+                amenities = st.multiselect(
+                    "Select amenities",
+                    ["Free Refreshments", "Free T-shirt", "Free Health Checkup", "Free Snacks", 
+                     "Free Parking", "Certificate", "Free Medical Consultation", "Free WiFi",
+                     "Waiting Area", "AC Hall", "Wheelchair Access", "First Aid Available"]
+                )
+                
+                st.subheader("Incentives for Donors")
+                incentives = st.multiselect(
+                    "Select incentives",
+                    ["Donation Certificate", "Reward Points", "Free Movie Ticket", "Free Gym Pass",
+                     "Free Coffee Coupon", "Badge", "Priority for Future Events", "Health Insurance Discount"]
+                )
+                
+                description = st.text_area("Event Description", 
+                                          placeholder="Describe the event, any special instructions, etc.")
+                
+                special_instructions = st.text_area("Special Instructions", 
+                                                    placeholder="Any special requirements or instructions for donors")
+                
+                is_featured = st.checkbox("Feature this event (highlight in search results)")
+                
+                submitted = st.form_submit_button("🚀 Create Event")
+                
+                if submitted:
+                    if not all([event_name, organizer, location, start_date, end_date, 
+                               contact_person, contact_phone, blood_types_needed]):
+                        st.error("Please fill all required fields")
+                    elif not is_valid_email(organizer_email) or not is_valid_email(contact_email):
+                        st.error("Please enter valid email addresses")
+                    else:
+                        event_data = {
+                            'event_name': event_name,
+                            'organizer': organizer,
+                            'organizer_email': organizer_email,
+                            'organizer_phone': organizer_phone,
+                            'location': location,
+                            'address': address,
+                            'city': city,
+                            'start_date': start_date.strftime("%Y-%m-%d"),
+                            'end_date': end_date.strftime("%Y-%m-%d"),
+                            'start_time': start_time.strftime("%H:%M"),
+                            'end_time': end_time.strftime("%H:%M"),
+                            'target_donations': target_donations,
+                            'contact_person': contact_person,
+                            'contact_phone': contact_phone,
+                            'contact_email': contact_email,
+                            'description': description,
+                            'blood_types_needed': blood_types_needed,
+                            'amenities': amenities,
+                            'incentives': incentives,
+                            'special_instructions': special_instructions,
+                            'min_age': min_age,
+                            'max_age': max_age,
+                            'min_weight': min_weight,
+                            'is_featured': 1 if is_featured else 0,
+                            'registration_deadline': registration_deadline.strftime("%Y-%m-%d") if registration_deadline else None,
+                            'status': 'Upcoming'
+                        }
+                        
+                        organizer_id = st.session_state.logged_in_donor['id'] if st.session_state.logged_in_donor else None
+                        
+                        success, result = event_manager.create_event(event_data, organizer_id)
+                        
+                        if success:
+                            st.success(f"✅ Event created successfully! Event ID: {result}")
+                            st.balloons()
+                            
+                            # Generate QR code for event
+                            qr_manager = QRCodeManager()
+                            qr_code = qr_manager.generate_event_qr(result, event_data)
+                            if qr_code:
+                                st.image(qr_code, caption="Event QR Code for Check-in", width=200)
+                        else:
+                            st.error(f"Failed to create event: {result}")
+        
+        with tab3:
+            if st.session_state.logged_in_donor is not None:
+                st.subheader("My Event Registrations")
+                
+                # Get donor's registrations
+                registrations = execute_query(
+                    """SELECT er.*, de.event_name, de.start_date, de.location, de.status 
+                       FROM event_registrations er
+                       JOIN donation_events de ON er.event_id = de.id
+                       WHERE er.donor_id=?
+                       ORDER BY er.registration_date DESC""",
+                    (st.session_state.logged_in_donor['id'],),
+                    fetch_all=True
+                ) or []
+                
+                if registrations:
+                    for reg in registrations:
+                        with st.expander(f"🎪 {reg.get('event_name')} - {reg.get('start_date')}"):
                             st.markdown(f"""
-                            **Date:** {event.get('start_date', '')}
-                            **Location:** {event.get('location', '')}
-                            **Contact:** {event.get('contact_phone', '')}
-                            **Registered:** {event.get('registered_donors', 0)}/{event.get('target_donations', 0)}
+                            **Registration Date:** {reg.get('registration_date')}
+                            **Event Status:** {reg.get('status')}
+                            **Attended:** {"✅ Yes" if reg.get('attended') else "⏳ No"}
+                            **Points Earned:** {reg.get('points_earned', 0)}
                             """)
                             
-                            if st.session_state.logged_in_donor is not None:
-                                if st.button("Register", key=f"reg_{event.get('id')}"):
-                                    if event_manager.register_for_event(event.get('id'), st.session_state.logged_in_donor['id']):
-                                        st.success("Registered!")
+                            if reg.get('attended') and not reg.get('feedback'):
+                                st.text_area("Leave Feedback", key=f"fb_{reg.get('id')}")
+                                if st.button("Submit Feedback", key=f"submit_{reg.get('id')}"):
+                                    st.success("Thank you for your feedback!")
+                else:
+                    st.info("You haven't registered for any events yet")
             else:
-                st.info("No events found")
+                st.warning("Please login to view your registrations")
 
     # ============================================
     # REWARDS STORE PAGE
@@ -3609,7 +4526,7 @@ if not st.session_state.get('showing_response', False):
                 st.session_state.admin_logged_in = False
                 st.rerun()
             
-            tab1, tab2, tab3, tab4 = st.tabs(["Overview", "Donors", "Requests", "Queue Monitor"])
+            tab1, tab2, tab3, tab4, tab5 = st.tabs(["Overview", "Donors", "Requests", "Events", "Queue Monitor"])
             
             with tab1:
                 total_donors = execute_query("SELECT COUNT(*) as count FROM donors", fetch_one=True)
@@ -3621,14 +4538,26 @@ if not st.session_state.get('showing_response', False):
                 total_donations = execute_query("SELECT COUNT(*) as count FROM donation_history", fetch_one=True)
                 total_donations = total_donations['count'] if total_donations else 0
                 
+                total_events = execute_query("SELECT COUNT(*) as count FROM donation_events", fetch_one=True)
+                total_events = total_events['count'] if total_events else 0
+                
                 pending = execute_query("SELECT COUNT(*) as count FROM requests WHERE status='Pending'", fetch_one=True)
                 pending = pending['count'] if pending else 0
+                
+                upcoming_events = execute_query("SELECT COUNT(*) as count FROM donation_events WHERE status='Upcoming'", fetch_one=True)
+                upcoming_events = upcoming_events['count'] if upcoming_events else 0
                 
                 col1, col2, col3, col4 = st.columns(4)
                 col1.metric("Total Donors", total_donors)
                 col2.metric("Total Requests", total_requests)
-                col3.metric("Pending", pending)
-                col4.metric("Completed", total_donations)
+                col3.metric("Total Events", total_events)
+                col4.metric("Pending Requests", pending)
+                
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("Completed Donations", total_donations)
+                col2.metric("Upcoming Events", upcoming_events)
+                col3.metric("Lives Saved", total_donations)  # 1 life per donation
+                col4.metric("Event Registrations", execute_query("SELECT COUNT(*) as count FROM event_registrations", fetch_one=True)['count'] or 0)
             
             with tab2:
                 donors = execute_query("SELECT * FROM donors", fetch_all=True) or []
@@ -3643,6 +4572,22 @@ if not st.session_state.get('showing_response', False):
                     st.dataframe(df, use_container_width=True, hide_index=True)
             
             with tab4:
+                events = execute_query("SELECT * FROM donation_events ORDER BY start_date DESC", fetch_all=True) or []
+                if events:
+                    df = pd.DataFrame(events)
+                    st.dataframe(df, use_container_width=True, hide_index=True)
+                    
+                    # Event stats
+                    st.subheader("Event Statistics")
+                    total_registrations = execute_query("SELECT COUNT(*) as count FROM event_registrations", fetch_one=True)
+                    total_attended = execute_query("SELECT COUNT(*) as count FROM event_registrations WHERE attended=1", fetch_one=True)
+                    
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("Total Registrations", total_registrations['count'] if total_registrations else 0)
+                    col2.metric("Total Attended", total_attended['count'] if total_attended else 0)
+                    col3.metric("Attendance Rate", f"{(total_attended['count']/total_registrations['count']*100):.1f}%" if total_registrations and total_registrations['count'] > 0 else "0%")
+            
+            with tab5:
                 pending_reqs = execute_query("SELECT * FROM requests WHERE status='Pending'", fetch_all=True) or []
                 for req in pending_reqs:
                     with st.expander(f"Request #{req.get('request_id')} - {req.get('blood')}"):
@@ -3684,8 +4629,9 @@ if not st.session_state.get('showing_response', False):
     st.sidebar.markdown("---")
     st.sidebar.markdown(f"""
     <div style='text-align: center; color: #666; font-size: 0.8rem;'>
-        <p>BloodAI v19.0 - Complete System</p>
+        <p>BloodAI v20.0 - Complete System with Events</p>
         <p>📍 <strong style='color: #43e97b;'>All Donors Notified • Closest First • {WAIT_MINUTES} Min Rotation</strong></p>
+        <p>🎪 <strong style='color: #667eea;'>Donation Events Management Included</strong></p>
         <p>💾 Database: {db_status}</p>
     </div>
     """, unsafe_allow_html=True)
