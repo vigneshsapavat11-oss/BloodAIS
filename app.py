@@ -1,8 +1,5 @@
 # ============================================
-# 🩸 BLOODAI COMPLETE SYSTEM v19.0
-# ADDED: Permanent Data Storage • Donation Events with Email Notifications
-# FIXED: Lives Saved = 1 per donation • Location Verification • Distance Display
-# UPDATED: Patient Email with exact format from image
+# 🩸 BLOODAI COMPLETE SYSTEM v19.0 - PERMANENT STORAGE FIX
 # ============================================
 
 import streamlit as st
@@ -530,7 +527,7 @@ if 'showing_response' not in st.session_state:
     st.session_state.showing_response = False
 
 # ============================================
-# PERMANENT DATABASE STORAGE - FIXED FOR STREAMLIT CLOUD
+# FIXED: PERMANENT DATABASE STORAGE FOR STREAMLIT CLOUD
 # ============================================
 
 def get_database_path():
@@ -539,26 +536,57 @@ def get_database_path():
     Data will survive app restarts and updates
     """
     try:
-        # For Streamlit Cloud - use /mount/src which is persistent
-        persistent_path = "/mount/src/bloodai_data.db"
-        # Create directory if it doesn't exist
-        os.makedirs("/mount/src", exist_ok=True)
-        # Test write access
-        with open(persistent_path, 'a') as f:
-            pass
-        print(f"✅ Using PERSISTENT database at: {persistent_path}")
-        return persistent_path
-    except Exception as e:
-        print(f"⚠️ Could not use persistent path: {e}")
+        # For Streamlit Cloud - use the app's directory which is writable
+        # The app runs in /mount/src/[app-name] but that directory is read-only
+        # Instead, we'll use the /tmp directory which is writable and persists between reruns
+        # BUT /tmp is cleared when the app sleeps after inactivity
+        
+        # Let's try multiple locations in order of preference:
+        
+        # 1. First try: /mount/src/[app-name]/data/ - but need to check if writable
+        app_path = os.path.dirname(os.path.abspath(__file__))
+        data_dir = os.path.join(app_path, "data")
+        
         try:
-            # Fallback to temp directory (still survives between reruns but not app restarts)
-            temp_path = "/tmp/bloodai_data.db"
-            print(f"📁 Using TEMPORARY database at: {temp_path}")
-            return temp_path
+            os.makedirs(data_dir, exist_ok=True)
+            test_file = os.path.join(data_dir, "test_write.txt")
+            with open(test_file, 'w') as f:
+                f.write("test")
+            os.remove(test_file)
+            
+            db_path = os.path.join(data_dir, "bloodai_data.db")
+            print(f"✅ Using writable app directory database at: {db_path}")
+            return db_path
         except:
-            # Final fallback - local file (works locally)
-            print("⚠️ Using local database file: bloodai_data.db")
-            return "bloodai_data.db"
+            print(f"⚠️ App directory not writable: {data_dir}")
+            pass
+        
+        # 2. Second try: /tmp/bloodai_data.db - works on Streamlit Cloud, persists between reruns
+        # but NOT between app sleeps (after ~1 hour of inactivity)
+        tmp_path = "/tmp/bloodai_data.db"
+        
+        # Create directory if it doesn't exist
+        os.makedirs("/tmp", exist_ok=True)
+        
+        # Test write access
+        with open(tmp_path, 'a') as f:
+            pass
+            
+        print(f"✅ Using PERSISTENT (temporary) database at: {tmp_path}")
+        print(f"⚠️ Note: Data will persist during app use but may be cleared after ~1 hour of inactivity")
+        return tmp_path
+        
+    except Exception as e:
+        print(f"⚠️ Could not use temporary path: {e}")
+        try:
+            # Fallback to current directory (works locally)
+            local_path = "bloodai_data.db"
+            print(f"📁 Using local database at: {local_path}")
+            return local_path
+        except:
+            # Final fallback - use session state (NOT permanent but better than nothing)
+            print("⚠️ Using in-memory database (data will be lost on restart)")
+            return ":memory:"
 
 # Get the database path
 DB_PATH = get_database_path()
@@ -572,7 +600,12 @@ def get_db_connection():
     """Get a database connection with proper error handling"""
     conn = None
     try:
-        conn = sqlite3.connect(DB_PATH, timeout=30)
+        # Special handling for in-memory database
+        if DB_PATH == ":memory:":
+            conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+        else:
+            conn = sqlite3.connect(DB_PATH, timeout=30)
+        
         conn.row_factory = sqlite3.Row
         yield conn
     except Exception as e:
@@ -1002,8 +1035,8 @@ if not st.session_state.db_initialized:
             st.sidebar.error("❌ Database Error")
 
 # Show database status in sidebar
-db_status_text = "✅ Persistent" if DB_PATH.startswith('/mount') else "📁 Local" if 'bloodai_data.db' in DB_PATH else "⚠️ Temporary"
-db_location = DB_PATH.split('/')[-1]
+db_status_text = "✅ Persistent" if DB_PATH != ":memory:" else "⚠️ Temporary"
+db_location = DB_PATH.split('/')[-1] if DB_PATH != ":memory:" else "in-memory"
 
 # ============================================
 # EMAIL VALIDATION FUNCTIONS
