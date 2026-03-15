@@ -11,4 +11,4 @@ python-dateutil
 email-validator
 python-dotenv
 requests
-psycopg2-binary==2.9.9
+
